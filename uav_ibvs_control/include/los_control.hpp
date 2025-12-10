@@ -126,7 +126,7 @@ private:
     double k1=0.003;
     double k2=0.002;
     //  FOV保持器 Y轴
-    double d_gain=1;
+    double d_gain=4;
     double kv=7;
     double kz=7;
     double m=0.945;

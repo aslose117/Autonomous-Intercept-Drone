@@ -32,7 +32,7 @@ uav_chase::uav_chase():Node("uav_chase")
             hover_flag = true;}
         });
         //	创建 识别信息话题接收者
-        track_result_subscription_ = this->create_subscription<uav_common_msg::msg::RectMsg>("/uav_detect_result", 10,
+        track_result_subscription_ = this->create_subscription<uav_common_msg::msg::RectMsg>("/camera_detect_result", 10,
         [this](const uav_common_msg::msg::RectMsg::UniquePtr msg)
         {
             this->x = msg->x;
@@ -346,8 +346,8 @@ void uav_chase::take_off()
 	this->arm();
 	
 	publish_offboard_control_mode();
-	publish_trajectory_setpoint(0,0,-standby_height,-3.14);
-	//publish_trajectory_setpoint(0,0,-standby_height,this->yaw);
+	//publish_trajectory_setpoint(0,0,-standby_height,-3.14);
+	publish_trajectory_setpoint(0, 0, -standby_height, this->yaw);
 
 	if (offboard_setpoint_counter_ < 501) {
 		offboard_setpoint_counter_++;
@@ -357,25 +357,28 @@ void uav_chase::take_off()
 		if (hover_flag)
 		{state = State::image_detect;}
 		else
-		{publish_offboard_control_mode();
-		publish_trajectory_setpoint(0,0,-standby_height,-3.14);}
+		{
+			publish_offboard_control_mode();
+			// publish_trajectory_setpoint(0,0,-standby_height,-3.14);
+			publish_trajectory_setpoint(0, 0, -standby_height, this->yaw);
+		}
 	}
 }
 void uav_chase::hover()
 { 
     // 悬停
 	publish_offboard_control_mode_vel();
-	publish_trajectory_velocity(0,0,0,0);
+	publish_trajectory_velocity(0,0,0,this->yaw);
 }
 void uav_chase::waiting_for_detect()
 {
     // 如果丢失目标，进入到速度控制模式，保证不坠机 track_time要超过100的原因是识别部分前100帧不稳定
 	if(lost_track > 60 || track_time <100){
-		// publish_offboard_control_mode_vel();
-		// publsh_trajectory_velocity(0,0,0,0);
+		publish_offboard_control_mode_vel();
+		 publish_trajectory_velocity(0,0,0,this->yaw);
 
-		publish_offboard_control_mode();
-		publish_trajectory_setpoint(0,0,-standby_height,-3.14);
+		// publish_offboard_control_mode();
+		// publish_trajectory_setpoint(0,0,-standby_height,-3.14);
 	}
 }
 
