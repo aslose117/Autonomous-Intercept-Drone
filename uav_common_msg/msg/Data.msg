@@ -1,0 +1,13 @@
+float32 d_v_angle_v
+float32 d_v_angle_z
+float32 v_angle_v
+float32 v_angle_z
+float32 los_angle_v 
+float32 los_angle_z
+float32 diff_los_angle_v
+float32 diff_los_angle_z
+float32 ex
+float32 ey
+float32 yaw
+float32 pitch
+float32 roll
