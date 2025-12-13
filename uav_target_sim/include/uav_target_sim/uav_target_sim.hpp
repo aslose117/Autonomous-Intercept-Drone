@@ -56,7 +56,7 @@ private:
     float radius_ = 5.0;        // Circle radius in meters
     float center_x_ = 0;   // Circle center x-coordinate
     float center_y_ = 0;      // Circle center y-coordinate
-    float angular_speed_ = 0.25; // Radians per iteration
+    float angular_speed_ = 0.0025; // Radians per iteration
     float theta_ = 0.0;         // Initial angle for circular motion
 
     std::atomic<uint64_t> timestamp_;   //!< common synced timestamped
