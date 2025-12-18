@@ -40,7 +40,7 @@
 
 [![Bilibili](https://img.shields.io/badge/Bilibili-观看视频演示-ff69b4?style=for-the-badge&logo=bilibili)](https://www.bilibili.com/video/BV1M8QVYHE39/?spm_id_from=333.1387.homepage.video_card.click)
 
-<video src="./assets//output.mp4" controls></video>
+<video controls src="assets/output.mp4" title="Title"></video>
 </div>
 
 ---
@@ -51,8 +51,8 @@
 本项目依赖 **PX4-Autopilot** 与 **Gazebo Sim8**。在运行以下命令前，请确保已正确配置 PX4 开发环境已搭建完成
 
 ### 1.启动Gazebo仿真环境
+ 在 PX4-Autopilot 根目录下运行run_swarm.sh，其中run_swarm.sh文件见仓库,(另外脚本中加载的grass_wrold见assets/gazebo_world)
 ```bash
-# 在 PX4-Autopilot 根目录下运行run_swarm.sh，其中run_swarm.sh文件见仓库,(另外脚本中加载的grass_wrold见assets/gazebo_world)
 cd PX4-Autopilot/
 ./run_swarm.sh 
 ```
