@@ -40,7 +40,10 @@
 
 [![Bilibili](https://img.shields.io/badge/Bilibili-观看视频演示-ff69b4?style=for-the-badge&logo=bilibili)](https://www.bilibili.com/video/BV1M8QVYHE39/?spm_id_from=333.1387.homepage.video_card.click)
 
-<video controls src="assets/output.mp4" title="Title"></video>
+<div align="center">
+  <img src="./assets/output.gif" alt="演示视频" width="100%">
+</div>
+
 </div>
 
 ---
