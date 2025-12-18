@@ -153,7 +153,7 @@ void UavTopicSubscrib::image_callback(const sensor_msgs::msg::Image::SharedPtr m
         }
 
         // --- 检测结果处理 ---
-        if (has_valid_detection && best_score > 0.3) // 0.3 为业务逻辑的过滤阈值，可调
+        if (has_valid_detection && best_score > 0.8) // 0.3 为业务逻辑的过滤阈值，可调
         {
             cv::Rect safe_rect = best_rect & cv::Rect(0, 0, frame.cols, frame.rows);
             

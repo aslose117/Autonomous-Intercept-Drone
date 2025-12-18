@@ -40,34 +40,26 @@
 
 [![Bilibili](https://img.shields.io/badge/Bilibili-观看视频演示-ff69b4?style=for-the-badge&logo=bilibili)](https://www.bilibili.com/video/BV1M8QVYHE39/?spm_id_from=333.1387.homepage.video_card.click)
 
-<img src="./assets/仿真效果.jpg" alt="仿真效果图" width="80%">
-
+<video src="./assets//output.mp4" controls></video>
 </div>
 
 ---
 
-## 🛠️ 仿真环境搭建 (Simulation Environment)
+## 🛠️ 如何启动仿真环境和程序 (Simulation Environment)
 
-本项目依赖 **PX4-Autopilot** 与 **Gazebo Classic**。在运行以下命令前，请确保已正确配置 PX4 开发环境及 ROS 2 通信桥接。
 
-### 1. 启动多机仿真 (Interception Scenario)
-加载两架无人机模型：一架搭载深度相机的拦截机 (`iris_depth_camera`) 和一架目标机 (`iris`)。
+本项目依赖 **PX4-Autopilot** 与 **Gazebo Sim8**。在运行以下命令前，请确保已正确配置 PX4 开发环境已搭建完成
 
+### 1.启动Gazebo仿真环境
 ```bash
-# 在 PX4-Autopilot 根目录下运行
-./Tools/simulation/gazebo-classic/sitl_multiple_run.sh -s "iris_depth_camera:1, iris:1"
+# 在 PX4-Autopilot 根目录下运行run_swarm.sh，其中run_swarm.sh文件见仓库,(另外脚本中加载的grass_wrold见assets/gazebo_world)
+cd PX4-Autopilot/
+./run_swarm.sh 
 ```
-
-### 2. 建立通信 (UDP Bridge)
-启动 MicroXRCEAgent 以建立 PX4 与 ROS 2 之间的 UDP 通信，端口为 8888。
-
+### 2.启动无人机程序
 ```bash
-MicroXRCEAgent udp4 -p 8888
-```
-
-### 3. 单机仿真 (Single Drone Test)
-仅用于测试单机飞行控制逻辑或环境验证。
-
-```bash
-make px4_sitl gazebo-classic
+# 在 PX4-Autopilot 根目录下运行run_swarm.sh，其中run_swarm.sh文件见仓库
+ros2 run uav_target_sim  uav_target_sim
+ros2 run uav_ibvs_conteol uav_ibvs_control
+ros2 run uav_vision_detect uav_vision_detect
 ```
