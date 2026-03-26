@@ -1,30 +1,33 @@
 #include <los_control.hpp>
-
+#include <fstream>
+#include <iomanip>
+#include <GeographicLib/Geocentric.hpp>
+using namespace GeographicLib;
 
 uav_chase::~uav_chase()
 {
 	std::cout<<"mission finished"<<std::endl;
 }
 
-uav_chase::uav_chase():Node("uav_chase")
+uav_chase::uav_chase():Node("uav_ibvs_control")
 {
     {
         rmw_qos_profile_t qos_profile = rmw_qos_profile_sensor_data;
         auto qos = rclcpp::QoS(rclcpp::QoSInitialization(qos_profile.history, 5), qos_profile);
 
         //创建控制模式发布者
-        offboard_control_mode_publisher_ = this->create_publisher<OffboardControlMode>("/fmu/in/offboard_control_mode", 10);
+        offboard_control_mode_publisher_ = this->create_publisher<OffboardControlMode>("/px4_1/fmu/in/offboard_control_mode", 10);
         //创建轨迹点模式发布者
-        trajectory_setpoint_publisher_ = this->create_publisher<TrajectorySetpoint>("/fmu/in/trajectory_setpoint", 10);
+        trajectory_setpoint_publisher_ = this->create_publisher<TrajectorySetpoint>("/px4_1/fmu/in/trajectory_setpoint", 10);
         //控制命令发布者
-        vehicle_command_publisher_ = this->create_publisher<VehicleCommand>("/fmu/in/vehicle_command", 10);
+        vehicle_command_publisher_ = this->create_publisher<VehicleCommand>("/px4_1/fmu/in/vehicle_command", 10);
         //创建轨迹及升力控制
-        vehicle_rates_setpoint_publisher_ = this->create_publisher<VehicleRatesSetpoint>("/fmu/in/vehicle_rates_setpoint", 10);
+        vehicle_rates_setpoint_publisher_ = this->create_publisher<VehicleRatesSetpoint>("/px4_1/fmu/in/vehicle_rates_setpoint", 10);
         //创建绘图数据发布者
         data_plot_publisher_ = this->create_publisher<uav_common_msg::msg::Data>("/los_data", 10);
 
         //创建悬浮升力监听者
-        hover_thrust_subscription_ = this->create_subscription<HoverThrustEstimate>("/fmu/out/hover_thrust_estimate", qos,
+        hover_thrust_subscription_ = this->create_subscription<HoverThrustEstimate>("/px4_1/fmu/out/hover_thrust_estimate", qos,
         [this](const HoverThrustEstimate::SharedPtr msg)
         {
             if(msg->hover_thrust_var<0.0025)
@@ -54,7 +57,7 @@ uav_chase::uav_chase():Node("uav_chase")
             track_timestamp = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()).count();
         });
         //	创建 姿态信息话题接收者
-        vehicle_odometry_subscription_ = this->create_subscription<VehicleOdometry>("/fmu/out/vehicle_odometry", qos,
+        vehicle_odometry_subscription_ = this->create_subscription<VehicleOdometry>("/px4_1/fmu/out/vehicle_odometry", qos,
         [this](const VehicleOdometry::SharedPtr msg)
         {
             double q0, q1, q2, q3;
@@ -65,9 +68,10 @@ uav_chase::uav_chase():Node("uav_chase")
             this->roll  = std::atan2(2 * (q0 * q1 + q2 * q3), 1 - 2 * (q1 * q1 + q2 * q2));
             this->pitch = std::asin(2 * (q0 * q2 - q3 * q1));
             this->yaw = std::atan2(2 * (q0 * q3 + q1 * q2), 1 - 2 * (q2 * q2 + q3 * q3));
+			std::cout<<"roll: "<<roll<<" pitch: "<<pitch<<" yaw: "<<yaw<<std::endl;
         });
         //	创建 速度信息话题接收者
-        local_position_subscription_ = this->create_subscription<VehicleLocalPosition>("/fmu/out/vehicle_local_position", qos,
+        local_position_subscription_ = this->create_subscription<VehicleLocalPosition>("/px4_1/fmu/out/vehicle_local_position", qos,
         [this](const VehicleLocalPosition::SharedPtr msg)
         {
             this->vx = msg->vx;
@@ -76,7 +80,7 @@ uav_chase::uav_chase():Node("uav_chase")
             local_position_z = msg->z;
         });
         //	创建 无人机状态话题接受者
-        VehicleState_subscription_ = this->create_subscription<VehicleStatus>("/fmu/out/vehicle_status", qos,
+        VehicleState_subscription_ = this->create_subscription<VehicleStatus>("/px4_1/fmu/out/vehicle_status", qos,
         [this](const VehicleStatus::SharedPtr msg)
         {
             if(msg->nav_state == msg->NAVIGATION_STATE_OFFBOARD)
@@ -84,6 +88,53 @@ uav_chase::uav_chase():Node("uav_chase")
                 this->offboard_state = true;
             }
         });
+
+
+
+
+		gps_sensor_subscription_ = this->create_subscription<px4_msgs::msg::SensorGps>(
+		"/px4_2/fmu/out/vehicle_gps_position", qos,
+		[this](const px4_msgs::msg::SensorGps::UniquePtr msg) {
+
+			static std::ofstream log_file;
+			if (!log_file.is_open()) {
+				log_file.open("/home/verser/ros2_ws/px4_2_xyz_log.txt", std::ios::out | std::ios::app);
+				if (!log_file.is_open()) {
+					RCLCPP_ERROR(this->get_logger(), "无法打开日志文件！");
+					return;
+				}
+				log_file << "timestamp, world_x, world_y, world_z\n";
+			}
+
+			Geocentric earth(Constants::WGS84_a(), Constants::WGS84_f());
+			double cur_x, cur_y, cur_z;
+			earth.Forward(msg->latitude_deg, msg->longitude_deg, msg->altitude_msl_m,
+						cur_x, cur_y, cur_z);
+
+			if (!this->xyz_initialized) {
+				this->init_xyz[0] = cur_x;
+				this->init_xyz[1] = cur_y;
+				this->init_xyz[2] = cur_z;
+				this->xyz_initialized = true;
+			}
+
+			double world_x = cur_x - this->init_xyz[0];
+			double world_y = cur_y - this->init_xyz[1];
+			double world_z = cur_z - this->init_xyz[2];
+
+			std::cout << "world xyz: x=" << world_x
+					<< " y=" << world_y
+					<< " z=" << world_z << std::endl;
+
+			double timestamp = this->now().seconds();
+			log_file << std::fixed << std::setprecision(6)
+					<< timestamp << ", "
+					<< world_x  << ", "
+					<< world_y  << ", "
+					<< world_z  << "\n";
+			log_file.flush();
+		});
+
     }
     //  前置速度环计算  20Hz
     auto los_loop_callback = [this]() -> void {
@@ -346,7 +397,7 @@ void uav_chase::take_off()
 	this->arm();
 	
 	publish_offboard_control_mode();
-	//publish_trajectory_setpoint(0,0,-standby_height,-3.14);
+	// publish_trajectory_setpoint(0,0,-standby_height,-3.14);
 	publish_trajectory_setpoint(0, 0, -standby_height, this->yaw);
 
 	if (offboard_setpoint_counter_ < 501) {

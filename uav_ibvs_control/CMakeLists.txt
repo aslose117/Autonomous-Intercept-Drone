@@ -33,13 +33,12 @@ find_package(uav_common_msg REQUIRED)
 # 导入矩阵库
 find_package(Eigen3 REQUIRED)
 
+
 include_directories(
   include
   ${EIGEN3_INCLUDE_DIR})
 
-# uncomment the following section in order to fill in
-# further dependencies manually.
-# find_package(<dependency> REQUIRED)
+
 
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)
@@ -57,6 +56,16 @@ ament_package()
 add_executable(uav_ibvs_control
         ./src/los_control.cpp
 )
+
+
+target_include_directories(uav_ibvs_control PUBLIC
+  ${GeographicLib_INCLUDE_DIRS}
+)
+
+target_link_libraries(uav_ibvs_control
+  ${GeographicLib_LIBRARIES}
+)
+
 ament_target_dependencies(uav_ibvs_control
         rclcpp
         sensor_msgs

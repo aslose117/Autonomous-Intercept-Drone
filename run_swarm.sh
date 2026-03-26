@@ -1,70 +1,123 @@
 #!/bin/bash
 
 # =======================================================
-# PX4 双机仿真启动脚本 (带 ROS 2 相机桥接)
+# PX4 双机仿真启动脚本 (纯净版)
+# Drone 1: gz_x500 (Instance 1)
+# Drone 2: gz_x500 (Instance 2)
+# 世界: grass_world
 # =======================================================
 
-# 1. 彻底清理环境
+set -e
+
+# -------------------------------------------------------
+# 0. 检查工作目录 & 依赖工具
+# -------------------------------------------------------
+if [ ! -f "build/px4_sitl_default/bin/px4" ]; then
+    echo "❌ 错误：请在 PX4-Autopilot 根目录下运行此脚本"
+    echo "   当前目录: $(pwd)"
+    exit 1
+fi
+
+if ! command -v rotatelogs &>/dev/null; then
+    echo "❌ 错误：未找到 rotatelogs，请安装 apache2-utils"
+    echo "   sudo apt install apache2-utils"
+    exit 1
+fi
+
+# 日志轮转配置
+LOG_MAX_SIZE="5M"
+LOG_MAX_FILES=2
+
+# -------------------------------------------------------
+# 1. 彻底清理残留进程
+# -------------------------------------------------------
 echo "🧹 正在清理残留进程..."
-# 增加了 parameter_bridge 到清理列表，防止上次运行的桥接没关掉
-killall -9 px4 gz-sim gz-server gz-client MicroXRCEAgent ruby parameter_bridge 2>/dev/null
+killall -9 px4 gz-sim gz-server gz-client MicroXRCEAgent 2>/dev/null || true
 sleep 2
 
+# 清理旧日志
+rm -f ./*.log
 
-export PX4_GZ_WORLD=grass_world
+# 清理 PX4 仿真缓存
+PX4_LOG_DIR="build/px4_sitl_default/tmp/rootfs/log"
+if [ -d "$PX4_LOG_DIR" ]; then
+    rm -rf "${PX4_LOG_DIR:?}"/*
+fi
 
-# 2. 启动通信代理 (Agent)
+# -------------------------------------------------------
+# 2. 启动 MicroXRCEAgent (ROS 2 通信桥)
+# -------------------------------------------------------
+echo ""
 echo "📡 正在启动 MicroXRCEAgent..."
-MicroXRCEAgent udp4 -p 8888 > agent.log 2>&1 &
-echo "   -> Agent 已在后台运行 (日志: agent.log)"
+MicroXRCEAgent udp4 -p 8888 2>&1 | rotatelogs -n $LOG_MAX_FILES agent.log $LOG_MAX_SIZE &
+PID_AGENT=$!
+echo "   -> Agent PID: $PID_AGENT"
 sleep 2
 
-# 3. 启动第一架无人机 (带相机) [Instance 0]
-echo "🚀 正在启动 Drone 1 (带相机, ID:0)..."
-echo "   -> 正在启动 Gazebo 界面..."
-echo "   -> 加载世界: $CUSTOM_WORLD_DIR/$WORLD_NAME.sdf"
-
-# 使用 make 启动第一架
-make px4_sitl gz_x500_depth > drone1.log 2>&1 &
+# -------------------------------------------------------
+# 3. 启动第一架无人机 (Instance 1)
+#    此进程会同时拉起 Gazebo 仿真服务器
+# -------------------------------------------------------
+echo ""
+echo "🚀 正在启动 Drone 1 (gz_x500, Instance 1)..."
+PX4_GZ_WORLD=grass_world \
+PX4_SYS_AUTOSTART=4001 \
+PX4_GZ_MODEL_POSE="0,0" \
+PX4_SIM_MODEL=gz_x500 \
+    ./build/px4_sitl_default/bin/px4 -i 1 2>&1 | rotatelogs -n $LOG_MAX_FILES drone1.log $LOG_MAX_SIZE &
 PID1=$!
+echo "   -> Drone 1 PID: $PID1"
 
-# 等待 Gazebo 完全启动 (这一步很关键)
-echo "⏳ 等待 15 秒让 Gazebo 世界加载..."
-sleep 15
+echo ""
+echo "⏳ 等待 Gazebo 世界加载 (10 秒)..."
+sleep 10
 
-# =======================================================
-# [新增] 启动 ROS 2 图像桥接 (Camera Bridge)
-# =======================================================
-echo "🌉 正在启动 ROS 2 相机桥接..."
-# 将 Gazebo 内部话题 /world/.../image 转换为 ROS 2 的 /camera/image (为了方便使用，我做了重映射)
-# 如果你想要原始长名字，去掉 --ros-args 及其后面的内容即可
-ros2 run ros_gz_bridge parameter_bridge \
-    /world/grass_world/model/x500_depth_0/link/camera_link/sensor/IMX214/image@sensor_msgs/msg/Image@gz.msgs.Image \
-    --ros-args -r /world/grass_world/model/x500_depth_0/link/camera_link/sensor/IMX214/image:=/camera/image \
-    > bridge.log 2>&1 &
-PID_BRIDGE=$!
-echo "   -> 桥接已启动！ROS2话题: /camera/image"
-
-# 4. 启动第二架无人机 (普通版) [Instance 1]
-echo "🚀 正在启动 Drone 2 (普通版, ID:1)..."
-
-# 设置环境变量
-export PX4_SIM_MODEL=gz_x500
-export PX4_GZ_MODEL_POSE="20,0"
-# export HEADLESS=1
-
-# 启动命令
-./build/px4_sitl_default/bin/px4 -i 1 > drone2.log 2>&1 &
+# -------------------------------------------------------
+# 4. 启动第二架无人机 (Instance 2)
+#    PX4_GZ_STANDALONE=1 表示连接已有的 Gazebo 服务器
+# -------------------------------------------------------
+echo ""
+echo "🚀 正在启动 Drone 2 (gz_x500, Instance 2)..."
+PX4_GZ_STANDALONE=1 \
+PX4_GZ_WORLD=grass_world \
+PX4_SYS_AUTOSTART=4001 \
+PX4_GZ_MODEL_POSE="20,0" \
+PX4_SIM_MODEL=gz_x500 \
+    ./build/px4_sitl_default/bin/px4 -i 2 2>&1 | rotatelogs -n $LOG_MAX_FILES drone2.log $LOG_MAX_SIZE &
 PID2=$!
+echo "   -> Drone 2 PID: $PID2"
+sleep 3
 
+# -------------------------------------------------------
+# 5. 启动摘要
+# -------------------------------------------------------
+echo ""
 echo "✅ 所有系统启动完成！"
+echo "================================================"
+echo "  MicroXRCEAgent : PID $PID_AGENT  (port 8888)"
+echo "  Drone 1 (Standard) : PID $PID1      Instance 1  (0, 0)"
+echo "  Drone 2 (Standard) : PID $PID2      Instance 2  (2, 0)"
 echo "------------------------------------------------"
-echo "Drone 1 (Camera): Instance 0"
-echo "Drone 2 (Target): Instance 1"
-echo "Camera Topic    : /camera/image (已重映射)"
-echo "------------------------------------------------"
-echo "按 Ctrl+C 关闭所有仿真"
+echo "  验证命令:"
+echo "  ros2 topic list | grep px4"
+echo "================================================"
+echo ""
+echo "按 Ctrl+C 关闭所有仿真进程"
 
-# 等待用户退出
-wait $PID1 $PID2 $PID_BRIDGE
-```csv
+# -------------------------------------------------------
+# 6. 退出时清理所有子进程
+# -------------------------------------------------------
+cleanup() {
+    echo ""
+    echo "🛑 正在关闭所有进程..."
+    kill "$PID1" "$PID2" "$PID_AGENT" 2>/dev/null || true
+    sleep 1
+    killall -9 px4 gz-sim gz-server gz-client MicroXRCEAgent 2>/dev/null || true
+    echo "✅ 清理完成"
+    exit 0
+}
+
+trap cleanup SIGINT SIGTERM
+
+# 等待主进程退出
+wait "$PID1" "$PID2" "$PID_AGENT"

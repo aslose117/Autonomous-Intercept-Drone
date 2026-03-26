@@ -40,7 +40,7 @@ UavTopicSubscrib::~UavTopicSubscrib()
     } 
 }
 
-UavTopicSubscrib::UavTopicSubscrib() : Node("uav_topic_subscrib")
+UavTopicSubscrib::UavTopicSubscrib() : Node("uav_vision_dectect")
 {
     /***********************************局部跟踪器初始化***********************************/
     std::string init_model = "/home/verser/ros2_ws/src/uav_vision_dectect/model/light_track/lighttrack_init";
@@ -116,7 +116,7 @@ void UavTopicSubscrib::image_callback(const sensor_msgs::msg::Image::SharedPtr m
     // 2. 模式控制
     // ===========================
     // true: 丢失目标时用YOLO重识别，识别后启动跟踪; false: 纯YOLO检测
-    bool enable_tracking = false; // TODO: 建议改为 ROS Param
+    bool enable_tracking = true; // TODO: 建议改为 ROS Param
 
     cv::Rect result_rect(-1, -1, -1, -1);      
     bool target_found = false; 

@@ -53,16 +53,36 @@
 
 本项目依赖 **PX4-Autopilot** 与 **Gazebo Sim8**。在运行以下命令前，请确保已正确配置 PX4 开发环境已搭建完成
 
-### 1.启动Gazebo仿真环境
+### 1.编译PX4-Autopilot
+在你的 PX4 源码目录下，找到针对 SITL（软件在环仿真）的启动脚本：
+PX4-Autopilot/ROMFS/px4fmu_common/init.d-posix/rcS
+使用编辑器打开该文件，在文件的末尾添加以下几行：
+```bash
+# 强制禁用地面站和遥控器检查，方便 Offboard 视觉拦截实验
+param set-default NAV_DLL_ACT 0
+param set-default COM_RCL_EXCEPT 4
+# 如果在 grass_world 定位不稳定，可以尝试强制设置 EKF 模式
+param set-default EKF2_AID_MASK 1
+```
+### 2.启动Gazebo仿真环境
  在 PX4-Autopilot 根目录下运行run_swarm.sh，其中run_swarm.sh文件见仓库,(另外脚本中加载的grass_wrold见assets/gazebo_world)
+
+
 ```bash
 cd PX4-Autopilot/
+export CMAKE_POLICY_VERSION_MINIMUM=3.5
+make px4_sitl gz_x500_depth
+make px4_sitl gz_x500
 ./run_swarm.sh 
 ```
-### 2.启动无人机程序
+
+### 3.启动无人机程序
 ```bash
 # 在 PX4-Autopilot 根目录下运行run_swarm.sh，其中run_swarm.sh文件见仓库
 ros2 run uav_target_sim  uav_target_sim
 ros2 run uav_ibvs_conteol uav_ibvs_control
 ros2 run uav_vision_detect uav_vision_detect
 ```
+
+PX4_SYS_AUTOSTART=4002 PX4_GZ_MODEL_POSE="0,0" PX4_SIM_MODEL=gz_x500_depth ./build/px4_sitl_default/bin/px4 -i 1
+PX4_GZ_STANDALONE=1 PX4_SYS_AUTOSTART=4001 PX4_GZ_MODEL_POSE="0,1" PX4_SIM_MODEL=gz_x500 ./build/px4_sitl_default/bin/px4 -i 2

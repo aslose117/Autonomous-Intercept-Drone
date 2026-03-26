@@ -117,6 +117,12 @@ private:
 	rclcpp::Subscription<VehicleRatesSetpoint>::SharedPtr vehicle_rates_setpoint_subscription_;
 	//	悬浮升力订阅者
 	rclcpp::Subscription<HoverThrustEstimate>::SharedPtr hover_thrust_subscription_;
+
+	rclcpp::Subscription<px4_msgs::msg::SensorGps>::SharedPtr gps_sensor_subscription_;
+
+
+	double init_xyz[3] = {0, 0, 0};
+	bool xyz_initialized = false;
     
     //  LOS控制参数
     double foc=544.0;   //焦距
@@ -143,7 +149,7 @@ private:
     double vx=0;
 	double vy=0;
 	double vz=0;
-    double hover_thrust=0;
+    double hover_thrust=0.5;
 
     
     //状态变量
@@ -401,7 +407,7 @@ void uav_chase:: publish_vehicle_command(uint16_t command, float param1, float p
 	msg.param1 = param1;
 	msg.param2 = param2;
 	msg.command = command;
-	msg.target_system = 1;
+	msg.target_system = 2;
 	msg.target_component = 1;
 	msg.source_system = 1;
 	msg.source_component = 1;
