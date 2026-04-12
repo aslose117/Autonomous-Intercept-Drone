@@ -50,18 +50,41 @@ print(f'最近接距离：{min_dist:.4f} m（t={t_hit:.2f} s）')
 print(f'最终速度：{V_total[idx_hit]:.2f} m/s')
 
 # ========== 2. 三维轨迹图 ==========
-fig1 = plt.figure('三维拦截轨迹', figsize=(10, 8))
+# 1. 提取绘图坐标 (NED -> Visual Up-is-Z)
+plot_self_e = self_y; plot_self_n = self_x; plot_self_u = -self_z
+plot_tgt_e  = tgt_y;  plot_tgt_n  = tgt_x;  plot_tgt_u  = -tgt_z
+
+# 2. 计算空间极差，用于严格等比例缩放
+r_e = np.ptp(np.concatenate([plot_self_e, plot_tgt_e]))
+r_n = np.ptp(np.concatenate([plot_self_n, plot_tgt_n]))
+r_u = np.ptp(np.concatenate([plot_self_u, plot_tgt_u]))
+
+# 3. 动态调整画布宽度（防止 East 轴太长被压缩）
+base_height = 8
+width_ratio = r_e / r_n if r_n > 0.1 else 1.0
+dynamic_width = max(8, min(16, base_height * width_ratio))
+
+fig1 = plt.figure('三维拦截轨迹', figsize=(dynamic_width, base_height))
 ax1 = fig1.add_subplot(111, projection='3d')
-ax1.plot(self_y, self_x, -self_z, 'b-', linewidth=1.5, label='拦截机轨迹')
-ax1.plot(tgt_y, tgt_x, -tgt_z, 'r--', linewidth=1.5, label='目标机轨迹')
-ax1.plot([self_y[0]], [self_x[0]], [-self_z[0]], 'bs', markersize=8, label='拦截机起点')
-ax1.plot([self_y[-1]], [self_x[-1]], [-self_z[-1]], 'b^', markersize=8, color='cyan', label='拦截机终点')
-ax1.plot([tgt_y[0]], [tgt_x[0]], [-tgt_z[0]], 'rs', markersize=8, label='目标机起点')
-ax1.plot([tgt_y[idx_hit]], [tgt_x[idx_hit]], [-tgt_z[idx_hit]], 'k*', markersize=14, label='命中点')
+
+# 4. 强制执行 1:1:1 的物理空间比例
+ax1.set_box_aspect((r_e, r_n, r_u))
+
+ax1.plot(plot_self_e, plot_self_n, plot_self_u, 'b-', linewidth=1.5, label='拦截机轨迹')
+ax1.plot(plot_tgt_e,  plot_tgt_n,  plot_tgt_u,  'r--', linewidth=1.5, label='目标机轨迹')
+
+ax1.plot([plot_self_e[0]], [plot_self_n[0]], [plot_self_u[0]], 'bs', markersize=8, label='拦截机起点')
+ax1.plot([plot_self_e[-1]], [plot_self_n[-1]], [plot_self_u[-1]], 'b^', markersize=8, color='cyan', label='拦截机终点')
+ax1.plot([plot_tgt_e[0]], [plot_tgt_n[0]], [plot_tgt_u[0]], 'rs', markersize=8, label='目标机起点')
+ax1.plot([plot_tgt_e[idx_hit]], [plot_tgt_n[idx_hit]], [plot_tgt_u[idx_hit]], 'k*', markersize=14, label='命中点')
+
 ax1.legend(loc='best')
 ax1.set_xlabel('East (m)'); ax1.set_ylabel('North (m)'); ax1.set_zlabel('Up (m)')
-ax1.set_title(f'三维拦截轨迹  |  最近接距离 = {min_dist:.3f} m')
-ax1.view_init(elev=25, azim=35)
+ax1.set_title(f'三维拦截轨迹 (严格等比例)  |  最近接距离 = {min_dist:.3f} m')
+
+# 调整初始视角，更利于观察较长的 East 轴
+ax1.view_init(elev=20, azim=-60)
+
 # 保存图片，dpi=300保证高清，bbox_inches='tight'防止标签被裁剪
 fig1.savefig(os.path.join(output_dir, '1_3D_Trajectory.png'), dpi=300, bbox_inches='tight')
 

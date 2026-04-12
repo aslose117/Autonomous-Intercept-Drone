@@ -566,6 +566,7 @@ void VisionPNG::save_stats_to_csv()
 
     // 计算真实距离（统计用，导引不使用）
     float dist = -1.0f;
+    bool just_hit = false; //标记是否在当前帧命中
     if (target_pos_ok_) {
         dist = (target_pos_stats_ - self_pos_stats_).norm();
 
@@ -578,6 +579,7 @@ void VisionPNG::save_stats_to_csv()
         if (dist < hit_radius_ && !stats_.hit_recorded) {
             stats_.hit_recorded   = true;
             stats_.intercept_time = ros_time;
+            just_hit = true; // 标记本帧为命中帧
             RCLCPP_WARN(get_logger(),
                 "★ [统计] 检测到命中！真实距离=%.3f m (统计专用)", dist);
             state_ = VpngState::DONE;
@@ -586,7 +588,10 @@ void VisionPNG::save_stats_to_csv()
 
     // 节流：每 10 帧（约 200ms @ 20Hz png_calculate）写一行，避免文件过大
     static int csv_counter = 0;
-    if (++csv_counter % 2 != 0) return;
+    csv_counter++;
+    if ((csv_counter % 2 != 0) && !just_hit) {
+            return; 
+        }
 
     csv_file_ << std::fixed << std::setprecision(4)
               << ros_time << ","
