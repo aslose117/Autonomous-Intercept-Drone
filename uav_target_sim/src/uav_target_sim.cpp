@@ -135,64 +135,63 @@ void UavTargetControl::publish_vehicle_command(uint16_t command, float param1, f
 
 void UavTargetControl::global_position_callback(const px4_msgs::msg::SensorGps::SharedPtr msg)
 {
-    std::cout << "callback triggered!" << std::endl; 
     (void)msg; 
     if (!msg) {
         RCLCPP_WARN(this->get_logger(), "Received null GPS message");
         return;
     }
 
-    static bool initialized = false;
-    static std::ofstream log_file;          // ← 只初始化一次
+    // static bool initialized = false;
+    // static std::ofstream log_file;          // ← 只初始化一次
 
-    // 打开文件（仅第一次执行时）
-    if (!log_file.is_open()) {
-        log_file.open("/home/verser/ros2_ws/src/uav_target_sim/xyz_log.txt", std::ios::out | std::ios::app);
-        if (!log_file.is_open()) {
-            RCLCPP_ERROR(this->get_logger(), "无法打开日志文件！");
-            return;
-        }
-        log_file << "timestamp, world_x, world_y, world_z\n";  // 写表头
-    }
+    // // 打开文件（仅第一次执行时）
+    // if (!log_file.is_open()) {
+    //     log_file.open("/home/verser/ros2_ws/src/uav_target_sim/xyz_log.txt", std::ios::out | std::ios::app);
+    //     if (!log_file.is_open()) {
+    //         RCLCPP_ERROR(this->get_logger(), "无法打开日志文件！");
+    //         return;
+    //     }
+    //     log_file << "timestamp, world_x, world_y, world_z\n";  // 写表头
+    // }
 
-    px4_msgs::msg::SensorGps::SharedPtr target_sim_position = msg;
-    Geocentric earth(Constants::WGS84_a(), Constants::WGS84_f());
+    // px4_msgs::msg::SensorGps::SharedPtr target_sim_position = msg;
+    // Geocentric earth(Constants::WGS84_a(), Constants::WGS84_f());
 
-    RCLCPP_INFO(this->get_logger(), "gps_position:%f, %f, %f",
-        target_sim_position->latitude_deg,
-        target_sim_position->longitude_deg,
-        target_sim_position->altitude_msl_m);
+    // RCLCPP_INFO(this->get_logger(), "gps_position:%f, %f, %f",
+    //     target_sim_position->latitude_deg,
+    //     target_sim_position->longitude_deg,
+    //     target_sim_position->altitude_msl_m);
 
-    if (!initialized) {
-        earth.Forward(
-            target_sim_position->latitude_deg,
-            target_sim_position->longitude_deg,
-            target_sim_position->altitude_msl_m,
-            this->init_enu_xyz[0], this->init_enu_xyz[1], this->init_enu_xyz[2]);
-        RCLCPP_INFO(this->get_logger(), "init_xyz:%f, %f, %f",
-            this->init_enu_xyz[0], this->init_enu_xyz[1], this->init_enu_xyz[2]);
-        initialized = true;
-    }
+    // if (!initialized) {
+    //     earth.Forward(
+    //         target_sim_position->latitude_deg,
+    //         target_sim_position->longitude_deg,
+    //         target_sim_position->altitude_msl_m,
+    //         this->init_enu_xyz[0], this->init_enu_xyz[1], this->init_enu_xyz[2]);
+    //     RCLCPP_INFO(this->get_logger(), "init_xyz:%f, %f, %f",
+    //         this->init_enu_xyz[0], this->init_enu_xyz[1], this->init_enu_xyz[2]);
+    //     initialized = true;
+    // }
 
-    earth.Forward(
-        target_sim_position->latitude_deg,
-        target_sim_position->longitude_deg,
-        target_sim_position->altitude_msl_m,
-        this->enu_xyz[0], this->enu_xyz[1], this->enu_xyz[2]);
+    // earth.Forward(
+    //     target_sim_position->latitude_deg,
+    //     target_sim_position->longitude_deg,
+    //     target_sim_position->altitude_msl_m,
+    //     this->enu_xyz[0], this->enu_xyz[1], this->enu_xyz[2]);
 
-    double world_x = this->enu_xyz[0] - this->init_enu_xyz[0];
-    double world_y = this->enu_xyz[1] - this->init_enu_xyz[1];
-    double world_z = this->enu_xyz[2] - this->init_enu_xyz[2];
+    // double world_x = this->enu_xyz[0] - this->init_enu_xyz[0];
+    // double world_y = this->enu_xyz[1] - this->init_enu_xyz[1];
+    // double world_z = this->enu_xyz[2] - this->init_enu_xyz[2];
 
-    RCLCPP_INFO(this->get_logger(), "world xyz: x=%f, y=%f, z=%f",
-        world_x, world_y, world_z);
+    // RCLCPP_INFO(this->get_logger(), "world xyz: x=%f, y=%f, z=%f",
+    //     world_x, world_y, world_z);
 
-    // 获取当前时间戳（秒）并写入文件
-    double timestamp = this->now().seconds();
-    log_file << std::fixed << std::setprecision(6)
-             << timestamp << ", "
-             << world_x   << ", "
-             << world_y   << ", "
-             << world_z   << "\n";
-    log_file.flush();   // ← 确保每次都实时写入磁盘
+    // // 获取当前时间戳（秒）并写入文件
+    // double timestamp = this->now().seconds();
+    // log_file << std::fixed << std::setprecision(6)
+    //          << timestamp << ", "
+    //          << world_x   << ", "
+    //          << world_y   << ", "
+    //          << world_z   << "\n";
+    // log_file.flush();   // ← 确保每次都实时写入磁盘
 }

@@ -97,8 +97,8 @@ PngInterceptor::PngInterceptor() : Node("png_interceptor")
             status_received_ = true;
         });
 
-    // ---------- 20Hz 控制定时器 ----------
-    timer_ = create_wall_timer(50ms,
+    // ---------- 50Hz 控制定时器 ----------
+    timer_ = create_wall_timer(30ms,
         std::bind(&PngInterceptor::control_loop, this));
 
     RCLCPP_INFO(get_logger(), "PNG Interceptor 节点已启动，等待 GPS 数据...");
@@ -218,6 +218,7 @@ void PngInterceptor::control_loop()
         RCLCPP_INFO_ONCE(get_logger(), "★★★ 拦截完成，悬停中 ★★★");
         break;
     }
+    save_data_to_csv();
 }
 
 // ============================================================
@@ -393,6 +394,26 @@ void PngInterceptor::publish_vehicle_command(uint16_t command, float p1, float p
     msg.from_external    = true;
     msg.timestamp        = get_clock()->now().nanoseconds() / 1000;
     cmd_pub_->publish(msg);
+}
+
+void PngInterceptor::save_data_to_csv() {
+    if (!csv_file_.is_open()) {
+        // 使用绝对路径，防止找不到文件
+        csv_file_.open("/home/verser/ros2_ws/src/uav_png_intercept/intercept_data.csv", std::ios::out);
+        csv_file_ << "time,s_x,s_y,s_z,t_x,t_y,t_z,dist\n";
+    }
+
+    // 假设 self_pos_ 和 target_pos_ 已经是转换后的 ENU 坐标
+    double distance = (target_pos_ - self_pos_).norm();
+    double ros_time = this->now().seconds();
+
+    csv_file_ << std::fixed << std::setprecision(4)
+              << ros_time << ","
+              << self_pos_(0) << "," << self_pos_(1) << "," << -self_pos_(2) << "," // 转为 Up 为正
+              << target_pos_(0) << "," << target_pos_(1) << "," << -target_pos_(2) << ","
+              << distance << "\n";
+    
+
 }
 
 // ============================================================

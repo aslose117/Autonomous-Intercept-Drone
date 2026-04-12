@@ -14,6 +14,9 @@
 #include <chrono>
 #include <cmath>
 
+#include <fstream>
+#include <iomanip>
+
 using namespace px4_msgs::msg;
 using namespace std::chrono_literals;
 
@@ -96,6 +99,12 @@ private:
     const float takeoff_alt_{-5.0f};    // 起飞 NED 高度（与目标一致）
     const float hit_radius_{0.8f};      // 判定命中距离 m
     const float dt_{0.05f};             // 控制周期 20Hz
+
+    // -------- 数据记录 --------
+    std::ofstream csv_file_;
+    GeographicLib::LocalCartesian geo_converter_; // 统一的坐标转换器
+    bool origin_set_ = false;
+    void save_data_to_csv();
 };
 
 #endif // PNG_CONTROL_HPP

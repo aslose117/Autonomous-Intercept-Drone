@@ -3,6 +3,7 @@
 
 <div align="center">
 
+[![Bilibili](https://img.shields.io/badge/Bilibili-观看视频演示-ff69b4?style=for-the-badge&logo=bilibili)](https://www.bilibili.com/video/BV1M8QVYHE39/?spm_id_from=333.1387.homepage.video_card.click)
 [![PX4](https://img.shields.io/badge/PX4-Autopilot-blue.svg)](https://px4.io/)
 [![ROS2](https://img.shields.io/badge/ROS2-Humble%2FFoxy-green.svg)](https://docs.ros.org/en/humble/)
 [![TensorRT](https://img.shields.io/badge/TensorRT-Accelerated-76B900.svg)](https://developer.nvidia.com/tensorrt)
@@ -10,79 +11,133 @@
 
 </div>
 
-**Autonomous Intercept Drone** 是一个基于 **Image-based Visual Servo (IBVS)** 技术的自主拦截无人机项目。本项目结合了先进的小目标检测算法与 PX4/Gazebo 仿真环境，实现了对空中移动目标的自主识别、追踪与拦截。
+> **产品定位**：本系统是一个面向高动态目标拦截的自主无人机（UAV）实验平台。它深度集成了视觉感知、目标锁定与最优制导策略，为研究人员和开发者提供了一套从仿真到部署的完整闭环方案。
 
 ---
 
-## 🏗️ 系统架构 (System Architecture)
+## 💎 核心价值主张 (Core Value)
 
-### 1. 小目标无人机检测框架
-针对远距离、弱小无人机目标的检测优化方案，确保在复杂背景下也能精准识别目标。
+在复杂的低空空域任务中，对非法或非合作无人机的拦截是当前安全领域的巨大挑战。本项目通过以下核心技术解决了这一难题：
 
-<div align="center">
-  <img src="./assets/小目标无人机检测框架.jpg" alt="小目标无人机检测方案" width="80%">
-</div>
-
-### 2. 无人机拦截方案框架
-基于视觉反馈的闭环控制策略，包含状态估计、目标预测与伺服控制逻辑。
-
-<div align="center">
-  <img src="./assets/框架.png" alt="无人机拦截框架" width="80%">
-</div>
+*   **全链路闭环感知**：集成 YOLO 深度学习模型，针对“小目标”无人机进行专项优化，实现远距离稳定截获。
+*   **双重引导机制**：结合 **PNG (比例导引)** 算法确保拦截路径的最优性（前置截击）。
+*   **高保真仿真环境**：基于 Gazebo 与 PX4 软件在环（SITL），模拟真实物理特性与动态干扰。
+*   **数据驱动的评估**：内置自动化绘图脚本，每一场拦截实验均有完整的运动学与视觉指标分析。
 
 ---
 
-## 📺 仿真演示 (Simulation & Demos)
+## 🎬 仿真演示 (Simulation & Demos)
 
-我们提供了完整的仿真视频，展示了无人机从搜索、锁定到拦截的全过程。
-
+### 1. 动态拦截全过程 (Real-time Intercept)
 <div align="center">
-
-[![Bilibili](https://img.shields.io/badge/Bilibili-观看视频演示-ff69b4?style=for-the-badge&logo=bilibili)](https://www.bilibili.com/video/BV1M8QVYHE39/?spm_id_from=333.1387.homepage.video_card.click)
-
-<div align="center">
-  <img src="./assets/output.gif" alt="演示视频" width="100%">
+  <img src="assets/output.gif" alt="拦截动态演示" width="80%">
+  <p><i>（通过 PNG 算法预判目标航迹，实现精准的物理碰撞拦截）</i></p>
+  <p><b>📺 <a href="https://www.bilibili.com/video/BV1M8QVYHE39/">点击此处前往 Bilibili 观看完整高清演示视频</a></b></p>
 </div>
 
+### 2. 小目标无人机检测框架 (Vision Detection)
+<div align="center">
+  <img src="assets/小目标无人机检测框架.jpg" alt="小目标检测框架" width="80%">
+  <p><i>（针对无人机“点目标”优化的视觉处理流程）</i></p>
 </div>
 
 ---
 
-## 🛠️ 如何启动仿真环境和程序 (Simulation Environment)
+## 📐 系统架构与逻辑 (Architecture)
 
+系统采用 ROS 2 分层架构，确保了极高的灵活性与实时性：
 
-本项目依赖 **PX4-Autopilot** 与 **Gazebo Sim8**。在运行以下命令前，请确保已正确配置 PX4 开发环境已搭建完成
+<div align="center">
+  <img src="assets/框架.png" alt="框架图" width="80%">
+</div>
 
-### 1.编译PX4-Autopilot
-在你的 PX4 源码目录下，找到针对 SITL（软件在环仿真）的启动脚本：
-PX4-Autopilot/ROMFS/px4fmu_common/init.d-posix/rcS
-使用编辑器打开该文件，在文件的末尾添加以下几行：
+| 模块名称 | 功能描述 | 关键包 | 状态/备注 |
+| :--- | :--- | :--- | :--- |
+| **感知层** | 目标检测、像素误差计算、视线角提取 | `uav_vision_dectect`, `uav_vision_png` | **当前主方案** |
+| **制导层** | PNG 导引率计算、前置量补、轨迹生成 | `uav_png_intercept` | **纯PNG方案 (不依赖视觉)** |
+| **控制层** | PX4 Offboard 接口、速度/姿态闭环控制 | `uav_vehicle_controller`, `px4_ros_com` | 核心控制底座 |
+| **仿真层** | 目标机动态模拟、拦截环境生成 | `uav_target_sim` | 仿真支持 |
+| **早期方案** | 基于图像的视觉伺服控制 | `uav_ibvs_control` | **已放弃 (代码仅供保留参考)** |
+
+---
+
+## 📊 拦截性能量化分析 (Analytics)
+
+我们不只展示效果，更注重数据的严谨性。以下是一次典型成功拦截任务的性能报告：
+
+### 运动学性能 (Kinematics)
+<div align="center">
+  <table>
+    <tr>
+      <td><img src="assets/plots_output/1_3D_Trajectory.png" width="300px"><br><b>3D 拦截轨迹图</b></td>
+      <td><img src="assets/plots_output/2_Relative_Distance.png" width="300px"><br><b>相对距离收敛曲线</b></td>
+      <td><img src="assets/plots_output/3_Velocity.png" width="300px"><br><b>拦截机速度矢量</b></td>
+    </tr>
+    <tr>
+      <td>展示了 3D 空间内的截击前置量</td>
+      <td>验证拦截距离最终收敛至 &lt;0.2m</td>
+      <td>反映了制导律对推力的高效利用</td>
+    </tr>
+  </table>
+</div>
+
+### 视觉追踪表现 (Vision Performance)
+<div align="center">
+  <table>
+    <tr>
+      <td><img src="assets/plots_output/4_LOS_PNG_Angles.png" width="300px"><br><b>视线角 (LOS) 演变</b></td>
+      <td><img src="assets/plots_output/5_Pixel_Error.png" width="300px"><br><b>视觉中心追踪误差</b></td>
+      <td><img src="assets/plots_output/6_2D_Top_View.png" width="300px"><br><b>2D 俯视截击路径</b></td>
+    </tr>
+    <tr>
+      <td>导引规律的收敛稳定性分析</td>
+      <td>检测算法在动态过程中的稳健性表现</td>
+      <td>典型前置量补效果展示</td>
+    </tr>
+  </table>
+</div>
+
+---
+
+## 🛠 快速上手 (Quick Start)
+
+### 1. 环境依赖
+*   **ROS 2 Version**: Humble
+*   **PX4 Firmware**: v1.16
+*   **Dependencies**: OpenCV, PyTorch, colcon
+
+### 2. 编译项目
 ```bash
-# 强制禁用地面站和遥控器检查，方便 Offboard 视觉拦截实验
-param set-default NAV_DLL_ACT 0
-param set-default COM_RCL_EXCEPT 4
-# 如果在 grass_world 定位不稳定，可以尝试强制设置 EKF 模式
-param set-default EKF2_AID_MASK 1
-```
-### 2.启动Gazebo仿真环境
- 在 PX4-Autopilot 根目录下运行run_swarm.sh，其中run_swarm.sh文件见仓库,(另外脚本中加载的grass_wrold见assets/gazebo_world)
-
-
-```bash
-cd PX4-Autopilot/
-export CMAKE_POLICY_VERSION_MINIMUM=3.5
-make px4_sitl gz_x500_depth
-make px4_sitl gz_x500
-./run_swarm.sh 
+# 进入工作空间并编译
+cd ros2_ws
+colcon build --symlink-install
+source install/setup.bash
 ```
 
-### 3.启动无人机程序
-```bash
-# 在 PX4-Autopilot 根目录下运行run_swarm.sh，其中run_swarm.sh文件见仓库
-ros2 run uav_target_sim  uav_target_sim
-ros2 run uav_ibvs_conteol uav_ibvs_control
-ros2 run uav_vision_detect uav_vision_detect
-```
+### 3. 运行拦截任务 (步骤序列)
+请按以下顺序在不同终端中运行各节点：
 
-PX4_SYS_AUTOSTART=4002 PX4_GZ_MODEL_POSE="0,0" PX4_SIM_MODEL=gz_x500_depth ./build/px4_sitl_default/bin/px4 -i 1
-PX4_GZ_STANDALONE=1 PX4_SYS_AUTOSTART=4001 PX4_GZ_MODEL_POSE="0,1" PX4_SIM_MODEL=gz_x500 ./build/px4_sitl_default/bin/px4 -i 2
+1. **启动目标机仿真**:
+   ```bash
+   ros2 run uav_target_sim uav_target_sim
+   ```
+2. **启动视觉检测**:
+   ```bash
+   ros2 run uav_vision_dectect uav_vision_dectect
+   ```
+3. **启动视觉制导拦截**:
+   ```bash
+   ros2 run uav_vision_png uav_vision_png
+   ```
+
+---
+
+## 📈 演进路线 (Roadmap)
+- [x] 基于视觉伺服的稳定追踪 (Early Phase)
+- [x] 3D 比例导引拦截算法实现 (Pure PNG & Vision-based)
+- [ ] 集群协同拦截（Swarm Interception）
+- [ ] 针对不确定性目标的预测控制（MPC）
+
+---
+
+> **项目维护者注**：如果您需要更多关于算法推导（PNG）的细节，请参考各功能包下的 `include/` 头文件或联系开发团队。
