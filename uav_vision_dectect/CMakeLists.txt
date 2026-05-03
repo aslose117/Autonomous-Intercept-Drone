@@ -6,19 +6,12 @@ if(NOT CMAKE_C_STANDARD)
   set(CMAKE_C_STANDARD 99)
 endif()
 
-# Default to C++14
+# Default to C++17 (required for ONNX Runtime)
 if(NOT CMAKE_CXX_STANDARD)
-  set(CMAKE_CXX_STANDARD 14)
+  set(CMAKE_CXX_STANDARD 17)
 endif()
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
-
-if(NOT DEFINED CMAKE_CUDA_ARCHITECTURES)
-  set(CMAKE_CUDA_ARCHITECTURES 75 80 90)
-endif(NOT DEFINED CMAKE_CUDA_ARCHITECTURES)
-
-set(CMAKE_CUDA_COMPILER /usr/local/cuda/bin/nvcc)
-enable_language(CUDA)
 
 if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   add_compile_options(-Wall -Wextra -Wpedantic)
@@ -34,11 +27,15 @@ find_package(px4_msgs REQUIRED)
 find_package(uav_common_msg REQUIRED)
 find_package(OpenMP REQUIRED)
 
-find_package(ncnn REQUIRED)
-include_directories(${NCNN_INCLUDE_DIRS})
-
 find_package(OpenCV REQUIRED)
 include_directories(${OpenCV_INCLUDE_DIRS})
+
+# ONNX Runtime
+find_library(ONNXRUNTIME_LIB onnxruntime PATHS /usr/local/lib REQUIRED)
+find_library(ONNXRUNTIME_CUDA_LIB onnxruntime_providers_cuda PATHS /usr/local/lib)
+find_library(ONNXRUNTIME_SHARED_LIB onnxruntime_providers_shared PATHS /usr/local/lib)
+include_directories(/usr/local/include)
+message(STATUS "ONNX Runtime: ${ONNXRUNTIME_LIB}")
 
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)
@@ -47,23 +44,9 @@ endif()
 
 ament_package()
 
-
-set(CMAKE_CUDA_COMPILER /usr/local/cuda/bin/nvcc)
-enable_language(CUDA)
-
 include_directories(
         ./include/uav_vision_dectect/
-        ./include/yolov5_tensorRT
-        /usr/local/cuda/include
-        /opt/TensorRT/include/
         ./include/light_track
-
-)
-
-
-link_directories(
-        /usr/local/cuda/lib64
-        /opt/TensorRT/lib/
 )
 
 add_executable(uav_vision_dectect
@@ -75,16 +58,12 @@ add_executable(uav_vision_dectect
 )
 
 target_link_libraries(uav_vision_dectect
-        -lopencv_world
-        -lncnn
-        -lvulkan
-        -lglslang
-        nvinfer
-        cudart
         ${OpenCV_LIBS}
-        ${OpenMP_CXX_LIBRARIES} 
+        ${OpenMP_CXX_LIBRARIES}
+        ${ONNXRUNTIME_LIB}
+        ${ONNXRUNTIME_CUDA_LIB}
+        ${ONNXRUNTIME_SHARED_LIB}
 )
-
 
 #添加节点的依赖
 ament_target_dependencies(uav_vision_dectect
@@ -95,7 +74,6 @@ ament_target_dependencies(uav_vision_dectect
     px4_msgs
     uav_common_msg
 )
-
 
 install(TARGETS
         uav_vision_dectect

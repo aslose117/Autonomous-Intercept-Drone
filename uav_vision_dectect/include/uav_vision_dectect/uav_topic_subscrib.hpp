@@ -5,8 +5,8 @@
 #include <sensor_msgs/msg/image.hpp>
 #include <cv_bridge/cv_bridge.h>
 
-#include "../../../../build/px4_msgs/rosidl_generator_cpp/px4_msgs/msg/detail/vehicle_global_position__struct.hpp"
-#include "../../../../build/px4_msgs/rosidl_generator_cpp/px4_msgs/msg/detail/vehicle_local_position__struct.hpp"
+#include <px4_msgs/msg/vehicle_global_position.hpp>
+#include <px4_msgs/msg/vehicle_local_position.hpp>
 
 
 #include "LightTrack.h"
@@ -14,14 +14,8 @@
 
 #include "uav_common_msg/msg/rect_msg.hpp"
 
-
-// 添加 TensorRT 头文件，确保 IRuntime 等类型被识别
-#include <NvInfer.h> 
-
-
 #include "yolo_detector.hpp"
 
-using namespace nvinfer1;
 
 class UavTopicSubscrib : public rclcpp::Node
 {
@@ -49,19 +43,19 @@ class UavTopicSubscrib : public rclcpp::Node
         cv_bridge::CvImagePtr orig_cv_ptr;
 
 
-        /************************LightTrack跟踪部分************************/ 
+        /************************LightTrack跟踪部分************************/
         cv::Rect trackWindow;
         cv::Mat init_window;
 
         LightTrack *siam_tracker;
         int light_track_flag = 0;
 
-        /************************TensorRT 资源成员变量************************/ 
-   
-        // 初始化 TensorRT 的函数
+        /************************YOLO Detector 资源成员变量************************/
+
+        // 初始化 YOLO Detector 的函数
         void initTensorRT();
 
-        std::unique_ptr<TensorRTDetector> yolo_detector_;
+        std::unique_ptr<YoloDetector> yolo_detector_;
 
 
         /**************************************************/

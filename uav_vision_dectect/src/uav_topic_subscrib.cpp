@@ -10,22 +10,24 @@
 
 
 // 定义模型路径 (建议改为 ROS2 参数加载)
-const std::string YOLO_ENGINE_PATH = "src/uav_vision_dectect/model/yolov5/drone.engine";
+const std::string YOLO_ENGINE_PATH = "src/uav_vision_dectect/model/yolov5/GDUT_UAV.onnx";
 
-void UavTopicSubscrib::initTensorRT() 
+void UavTopicSubscrib::initTensorRT()
 {
     // 配置并初始化 YOLO 检测器
     DetectorConfig config;
-    config.enginePath = YOLO_ENGINE_PATH;
+    config.modelPath = YOLO_ENGINE_PATH;
     config.confThreshold = 0.4f;
     config.iouThreshold = 0.45f;
+    config.inputWidth = 640;
+    config.inputHeight = 640;
 
     try {
-        RCLCPP_INFO(this->get_logger(), "Initializing TensorRT Engine from: %s", config.enginePath.c_str());
-        yolo_detector_ = std::make_unique<TensorRTDetector>(config);
-        RCLCPP_INFO(this->get_logger(), "TensorRT Engine Initialized Successfully.");
+        RCLCPP_INFO(this->get_logger(), "Initializing YOLO Detector from: %s", config.modelPath.c_str());
+        yolo_detector_ = std::make_unique<YoloDetector>(config);
+        RCLCPP_INFO(this->get_logger(), "YOLO Detector Initialized Successfully.");
     } catch (const std::exception& e) {
-        RCLCPP_ERROR(this->get_logger(), "Failed to initialize TensorRT: %s", e.what());
+        RCLCPP_ERROR(this->get_logger(), "Failed to initialize YOLO Detector: %s", e.what());
     }
 }
 
@@ -134,7 +136,7 @@ void UavTopicSubscrib::image_callback(const sensor_msgs::msg::Image::SharedPtr m
     if (need_yolo_detection && yolo_detector_)
     {
 
-        // 使用封装好的 TensorRTDetector 进行推理 ---
+        // 使用封装好的 YoloDetector 进行推理 ---
         std::vector<Detection> results = yolo_detector_->detect(frame);
 
         // 寻找最佳目标 (置信度最高)
@@ -228,7 +230,7 @@ void UavTopicSubscrib::image_callback(const sensor_msgs::msg::Image::SharedPtr m
         uav_result_rect = result_rect;
 
         // 绘制 (这里保留你原本的绘制逻辑，因为你有根据状态变色的需求)
-        // 也可以混合使用 TensorRTDetector::draw，但它颜色是固定的
+        // 也可以混合使用 YoloDetector::draw，但它颜色是固定的
         cv::rectangle(frame, result_rect, color, 2);
         cv::putText(frame, status_text, cv::Point(20, 40), cv::FONT_HERSHEY_SIMPLEX, 0.8, color, 2);
 

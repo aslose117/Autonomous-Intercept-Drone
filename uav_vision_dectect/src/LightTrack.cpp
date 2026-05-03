@@ -1,8 +1,8 @@
-//
-// Created by xiongzhuang on 2021/10/8.
-//
 #include "LightTrack.h"
 #include "timer.h"
+#include <algorithm>
+#include <cmath>
+#include <iostream>
 
 inline float fast_exp(float x) {
     union {
@@ -61,7 +61,11 @@ static std::vector<float> ratio_change_fun(std::vector<float> w, std::vector<flo
 }
 
 
-LightTrack::LightTrack(const char *model_init, const char *model_update) {
+LightTrack::LightTrack(const char *model_init, const char *model_update)
+    : env_(ORT_LOGGING_LEVEL_WARNING, "LightTrack")
+    , session_init_(nullptr)
+    , session_update_(nullptr)
+{
     score_size = int(round(this->instance_size / this->total_stride));
 
     std::string model_init_str = model_init;
@@ -70,31 +74,53 @@ LightTrack::LightTrack(const char *model_init, const char *model_update) {
     std::cout << "Loading model init from: " << model_init << std::endl;
     std::cout << "Loading model update from: " << model_update << std::endl;
 
+    Ort::SessionOptions opts;
+    opts.SetIntraOpNumThreads(4);
+    opts.SetGraphOptimizationLevel(GraphOptimizationLevel::ORT_ENABLE_ALL);
 
+    try {
+        OrtCUDAProviderOptions cuda_opts;
+        cuda_opts.device_id = 0;
+        opts.AppendExecutionProvider_CUDA(cuda_opts);
+        std::cout << "LightTrack: CUDA provider enabled" << std::endl;
+    } catch (const Ort::Exception& e) {
+        std::cerr << "LightTrack: CUDA unavailable, using CPU" << std::endl;
+    }
 
+    std::string init_path = model_init_str + ".onnx";
+    std::string update_path = model_update_str + ".onnx";
 
+    session_init_ = Ort::Session(env_, init_path.c_str(), opts);
+    session_update_ = Ort::Session(env_, update_path.c_str(), opts);
 
-    #if NCNN_VULKAN and USE_GPU
-        std::cout << NCNN_VULKAN << std::endl;
-        net_init.opt.use_vulkan_compute = bool(1);
-        net_update.opt.use_vulkan_compute = bool(1);   
-        // net_init.opt.num_threads = 3;
-        // net_update.opt.num_threads = 3;
-    #endif
-
-
-    this->load_model(model_init, model_update);
-
+    std::cout << "LightTrack models loaded:" << std::endl;
+    std::cout << "  Init:   " << init_path << std::endl;
+    std::cout << "  Update: " << update_path << std::endl;
 }
 
-LightTrack::~LightTrack() {
+std::vector<float> LightTrack::preprocess(const cv::Mat& img) {
+    cv::Mat rgb;
+    cv::cvtColor(img, rgb, cv::COLOR_BGR2RGB);
+    rgb.convertTo(rgb, CV_32F, 1.0f / 255.0f);
 
+    int h = rgb.rows, w = rgb.cols;
+    std::vector<float> data(3 * h * w);
+
+    std::vector<cv::Mat> channels(3);
+    cv::split(rgb, channels);
+    for (int c = 0; c < 3; c++) {
+        float* dst = data.data() + c * h * w;
+        const float* src = (const float*)channels[c].data;
+        for (int i = 0; i < h * w; i++) {
+            dst[i] = (src[i] - mean_vals[c]) / std_vals[c];
+        }
+    }
+    return data;
 }
 
 void LightTrack::init(const uint8_t *img, Bbox &box, int im_h , int im_w) {
     ori_img_h = im_h;
     ori_img_w = im_w;
-
 
     this->target_sz.x = box.x1-box.x0;
     this->target_sz.y = box.y1-box.y0;
@@ -106,38 +132,40 @@ void LightTrack::init(const uint8_t *img, Bbox &box, int im_h , int im_w) {
 
     this->grids();
 
-    // 对模板图像而言：在第一帧以s_z为边长，以目标中心为中心点，截取图像补丁（如果超出第一帧的尺寸，用均值填充）。之后将其resize为127x127x3.成为模板图像
-    // context = 1/2 * (w+h) = 2*pad
     float wc_z = target_sz.x + context_amount * (target_sz.x + target_sz.y);
     float hc_z = target_sz.y + context_amount * (target_sz.x + target_sz.y);
-    // z_crop size = sqrt((w+2p)*(h+2p))
-    float s_z = round(sqrt(wc_z * hc_z));   // orignal size
+    float s_z = round(sqrt(wc_z * hc_z));
 
-
-    cv::Mat z_crop;
     cv::Mat img_(im_h, im_w, CV_8UC3, (void*)img, im_w*3);
+    cv::Mat z_crop = get_subwindow_tracking(img_, target_pos, exemplar_size, int(s_z));
 
-    z_crop = get_subwindow_tracking(img_, target_pos, exemplar_size, int(s_z));
+    // Run init model: [1, 3, 127, 127] -> [1, 96, 8, 8]
+    std::vector<float> input_data = preprocess(z_crop);
+    std::array<int64_t, 4> input_shape = {1, 3, exemplar_size, exemplar_size};
 
-    // net init
-    ncnn::Extractor ex_init = net_init.create_extractor();
-    ex_init.set_light_mode(true);
-    // ex_init.set_num_threads(6);
-    ncnn::Mat ncnn_img = ncnn::Mat::from_pixels(z_crop.data, ncnn::Mat::PIXEL_BGR2RGB, z_crop.cols, z_crop.rows);
-    ncnn_img.substract_mean_normalize(this->mean_vals, this->norm_vals);
+    auto memory_info = Ort::MemoryInfo::CreateCpu(OrtArenaAllocator, OrtMemTypeDefault);
+    Ort::Value input_tensor = Ort::Value::CreateTensor<float>(
+        memory_info, input_data.data(), input_data.size(),
+        input_shape.data(), input_shape.size());
 
+    const char* input_names[] = {"input1"};
+    const char* output_names[] = {"output.1"};
 
-    ex_init.input("input1", ncnn_img);
-    ex_init.extract("output.1", zf);
+    auto outputs = session_init_.Run(Ort::RunOptions{nullptr},
+        input_names, &input_tensor, 1, output_names, 1);
 
-    std::vector<float> hanning(score_size, 0);  // 18
-    window.resize(score_size*score_size);
+    // Store zf feature map
+    const float* zf_data = outputs[0].GetTensorData<float>();
+    size_t zf_size = ZF_CHANNELS * ZF_SIZE * ZF_SIZE;
+    zf_.assign(zf_data, zf_data + zf_size);
+
+    // Create hanning window
+    std::vector<float> hanning(score_size, 0);
+    window.resize(score_size * score_size);
     for (int i = 0; i < score_size; i++) {
-        float w = 0.5f - 0.5f * std::cos(2 * 3.1415926535898f * i / (score_size - 1));
-        hanning[i] = w;
+        hanning[i] = 0.5f - 0.5f * std::cos(2 * 3.1415926535898f * i / (score_size - 1));
     }
     for (int i = 0; i < score_size; i++) {
-
         for (int j = 0; j < score_size; j++) {
             window[i * score_size + j] = hanning[i] * hanning[j];
         }
@@ -149,8 +177,8 @@ void LightTrack::init(const uint8_t *img, Bbox &box, int im_h , int im_w) {
 static int last_cls_score_positon = 170;
 bool LightTrack::target_pos_change(void)
 {
-    bool IsChangeFlag = 0;   //中心点目标改变标志位
-    if(abs(this->cls_score_position - last_cls_score_positon ) <= 30){
+    bool IsChangeFlag = 0;
+    if(abs(this->cls_score_position - last_cls_score_positon ) <= 25){
         IsChangeFlag = 0;
         last_cls_score_positon = this->cls_score_position;
     } else{
@@ -158,135 +186,111 @@ bool LightTrack::target_pos_change(void)
         last_cls_score_positon = 170;
     }
     return IsChangeFlag;
-
-
 }
 
 void LightTrack::update(const cv::Mat &x_crops, float scale_z) {
-    time_checker time2, time3, time4, time5;
+    // Preprocess search image
+    std::vector<float> search_data = preprocess(x_crops);
+    std::array<int64_t, 4> search_shape = {1, 3, instance_size, instance_size};
 
-    ncnn::Mat ncnn_img = ncnn::Mat::from_pixels(x_crops.data, ncnn::Mat::PIXEL_BGR2RGB, x_crops.cols, x_crops.rows);
-    ncnn_img.substract_mean_normalize(this->mean_vals, this->norm_vals);
+    // zf tensor
+    std::array<int64_t, 4> zf_shape = {1, ZF_CHANNELS, ZF_SIZE, ZF_SIZE};
 
-    // net backbone
-    ncnn::Extractor ex_update = net_update.create_extractor(); 
-    ncnn::Mat cls_score, bbox_pred;
-    ex_update.set_light_mode(true);
+    auto memory_info = Ort::MemoryInfo::CreateCpu(OrtArenaAllocator, OrtMemTypeDefault);
 
-    // time3.start();
-    ex_update.input("input1", zf);
-    ex_update.input("input2", ncnn_img);
-    
-    ex_update.extract("output.1", cls_score);  // [c, w, h] = [1, 18, 18]
-    ex_update.extract("output.2", bbox_pred); // [c, w, h] = [4, 18, 18]
+    std::vector<Ort::Value> input_tensors;
+    input_tensors.push_back(Ort::Value::CreateTensor<float>(
+        memory_info, zf_.data(), zf_.size(), zf_shape.data(), zf_shape.size()));
+    input_tensors.push_back(Ort::Value::CreateTensor<float>(
+        memory_info, search_data.data(), search_data.size(), search_shape.data(), search_shape.size()));
 
+    const char* input_names[] = {"input1", "input2"};
+    const char* output_names[] = {"output.1", "output.2"};
 
-    // time3.stop();
-    // time3.show_distance("Update stage ---- output cls_score and bbox_pred extracting cost time");
+    auto outputs = session_update_.Run(Ort::RunOptions{nullptr},
+        input_names, input_tensors.data(), 2, output_names, 2);
 
-    // time4.start();
-    // manually call sigmoid on the output
-    std::vector<float> cls_score_sigmoid;
+    // Parse cls_score [1, 1, 18, 18]
+    const float* cls_score_data = outputs[0].GetTensorData<float>();
+    int cols = score_size;  // 18
+    int rows = score_size;  // 18
 
-    float *cls_score_data = (float *) cls_score.data;
-    cls_score_sigmoid.clear();
-
-    int cols = cls_score.w;
-    int rows = cls_score.h;
-
-    for (int i = 0; i < cols * rows; i++)   // 18 * 18
-    {
-        cls_score_sigmoid.push_back(sigmoid(cls_score_data[i]));
+    std::vector<float> cls_score_sigmoid(rows * cols);
+    for (int i = 0; i < rows * cols; i++) {
+        cls_score_sigmoid[i] = sigmoid(cls_score_data[i]);
     }
 
+    auto max_it = std::max_element(cls_score_sigmoid.begin(), cls_score_sigmoid.end());
+    cls_score_position = std::distance(cls_score_sigmoid.begin(), max_it);
+    track_score = *max_it;
+    std::cout << "The maximum value in the vector is: " << track_score
+              << " at position " << cls_score_position << std::endl;
 
-    //计算最高得分位置
-    auto max_cls_score = std::max_element(cls_score_sigmoid.begin(), cls_score_sigmoid.end());
-    this->cls_score_position = std::distance(cls_score_sigmoid.begin(), max_cls_score);
-    std::cout << "The maximum value in the vector is: " << *max_cls_score
-              << " at position " << this->cls_score_position << std::endl;
+    // Parse bbox_pred [1, 4, 18, 18]
+    const float* bbox_pred_data = outputs[1].GetTensorData<float>();
+    int spatial = rows * cols;  // 324
 
+    const float* bbox_ch0 = bbox_pred_data;
+    const float* bbox_ch1 = bbox_pred_data + spatial;
+    const float* bbox_ch2 = bbox_pred_data + spatial * 2;
+    const float* bbox_ch3 = bbox_pred_data + spatial * 3;
 
-    std::vector<float> pred_x1(cols * rows, 0), pred_y1(cols * rows, 0), pred_x2(cols * rows, 0), pred_y2(cols * rows,
-                                                                                                          0);
-
-    float *bbox_pred_data1 = bbox_pred.channel(0);
-    float *bbox_pred_data2 = bbox_pred.channel(1);
-    float *bbox_pred_data3 = bbox_pred.channel(2);
-    float *bbox_pred_data4 = bbox_pred.channel(3);
-    for (int i = 0; i < rows; i++) {
-        for (int j = 0; j < cols; j++) {
-            pred_x1[i * cols + j] = this->grid_to_search_x[i * cols + j] - bbox_pred_data1[i * cols + j];
-            pred_y1[i * cols + j] = this->grid_to_search_y[i * cols + j] - bbox_pred_data2[i * cols + j];
-            pred_x2[i * cols + j] = this->grid_to_search_x[i * cols + j] + bbox_pred_data3[i * cols + j];
-            pred_y2[i * cols + j] = this->grid_to_search_y[i * cols + j] + bbox_pred_data4[i * cols + j];
-        }
+    std::vector<float> pred_x1(spatial), pred_y1(spatial), pred_x2(spatial), pred_y2(spatial);
+    for (int i = 0; i < spatial; i++) {
+        pred_x1[i] = grid_to_search_x[i] - bbox_ch0[i];
+        pred_y1[i] = grid_to_search_y[i] - bbox_ch1[i];
+        pred_x2[i] = grid_to_search_x[i] + bbox_ch2[i];
+        pred_y2[i] = grid_to_search_y[i] + bbox_ch3[i];
     }
 
-    // size penalty (1)
-    std::vector<float> w(cols * rows, 0), h(cols * rows, 0);
-    for (int i = 0; i < rows; i++) {
-        for (int j = 0; j < cols; j++) {
-            w[i * cols + j] = pred_x2[i * cols + j] - pred_x1[i * cols + j];
-            h[i * cols + j] = pred_y2[i * cols + j] - pred_y1[i * cols + j];
-        }
+    // Size penalty
+    std::vector<float> w(spatial), h(spatial);
+    for (int i = 0; i < spatial; i++) {
+        w[i] = pred_x2[i] - pred_x1[i];
+        h[i] = pred_y2[i] - pred_y1[i];
     }
 
     float sz_wh = sz_whFun(target_sz);
     std::vector<float> s_c = sz_change_fun(w, h, sz_wh);
     std::vector<float> r_c = ratio_change_fun(w, h, target_sz);
 
-    std::vector<float> penalty(rows * cols, 0);
-    for (int i = 0; i < rows * cols; i++) {
+    std::vector<float> penalty(spatial);
+    for (int i = 0; i < spatial; i++) {
         penalty[i] = std::exp(-1 * (s_c[i] * r_c[i] - 1) * penalty_tk);
     }
 
-    // window penalty
-    std::vector<float> pscore(rows * cols, 0);
+    // Window penalty
+    std::vector<float> pscore(spatial);
     int r_max = 0, c_max = 0;
     float maxScore = 0;
-    for (int i = 0; i < rows * cols; i++) {
+    for (int i = 0; i < spatial; i++) {
         pscore[i] = (penalty[i] * cls_score_sigmoid[i]) * (1 - window_influence) + window[i] * window_influence;
         if (pscore[i] > maxScore) {
-            // get max
             maxScore = pscore[i];
             r_max = std::floor(i / rows);
-            c_max = ((float) i / rows - r_max) * rows;
+            c_max = ((float)i / rows - r_max) * rows;
         }
     }
 
-    // time4.stop();
-    // time4.show_distance("Update stage ---- postprocess cost time");
-    // std::cout << "pscore_window max score is: " << pscore[r_max * cols + c_max] << std::endl;
+    // Decode to real size
+    int idx = r_max * cols + c_max;
+    float pred_xs = (pred_x1[idx] + pred_x2[idx]) / 2;
+    float pred_ys = (pred_y1[idx] + pred_y2[idx]) / 2;
+    float pred_w = pred_x2[idx] - pred_x1[idx];
+    float pred_h = pred_y2[idx] - pred_y1[idx];
 
-    // to real size
-    float pred_x1_real = pred_x1[r_max * cols + c_max]; // pred_x1[r_max, c_max]
-    float pred_y1_real = pred_y1[r_max * cols + c_max];
-    float pred_x2_real = pred_x2[r_max * cols + c_max];
-    float pred_y2_real = pred_y2[r_max * cols + c_max];
-
-    float pred_xs = (pred_x1_real + pred_x2_real) / 2;
-    float pred_ys = (pred_y1_real + pred_y2_real) / 2;
-    float pred_w = pred_x2_real - pred_x1_real;
-    float pred_h = pred_y2_real - pred_y1_real;
-
-    float diff_xs = pred_xs - instance_size / 2;
-    float diff_ys = pred_ys - instance_size / 2;
-
-    diff_xs /= scale_z;
-    diff_ys /= scale_z;
+    float diff_xs = (pred_xs - instance_size / 2) / scale_z;
+    float diff_ys = (pred_ys - instance_size / 2) / scale_z;
     pred_w /= scale_z;
     pred_h /= scale_z;
 
     target_sz.x = target_sz.x / scale_z;
     target_sz.y = target_sz.y / scale_z;
 
-    // size learning rate
-    float lr_ = penalty[r_max * cols + c_max] * cls_score_sigmoid[r_max * cols + c_max] * lr;
+    float lr_ = penalty[idx] * cls_score_sigmoid[idx] * lr;
 
-    // size rate
-    auto res_xs = float(target_pos.x + diff_xs);
-    auto res_ys = float(target_pos.y + diff_ys);
+    float res_xs = float(target_pos.x + diff_xs);
+    float res_ys = float(target_pos.y + diff_ys);
     float res_w = pred_w * lr + (1 - lr_) * target_sz.x;
     float res_h = pred_h * lr + (1 - lr_) * target_sz.y;
 
@@ -298,44 +302,27 @@ void LightTrack::update(const cv::Mat &x_crops, float scale_z) {
 }
 
 void LightTrack::track(const uint8_t *img) {
-    time_checker time1;
-
     float hc_z = target_sz.y + context_amount * (target_sz.x + target_sz.y);
     float wc_z = target_sz.x + context_amount * (target_sz.x + target_sz.y);
-    float s_z = sqrt(wc_z * hc_z);  // roi size
-    float scale_z = exemplar_size / s_z;  // 127/
+    float s_z = sqrt(wc_z * hc_z);
+    float scale_z = exemplar_size / s_z;
 
-    float d_search = (instance_size - exemplar_size) / 2;  // backbone_model_size - init_model_size = 288-127
+    float d_search = (instance_size - exemplar_size) / 2;
     float pad = d_search / scale_z;
     float s_x = s_z + 2 * pad;
 
-
-    // time1.start();
-    cv::Mat x_crop;
     cv::Mat img_(ori_img_h, ori_img_w, CV_8UC3, (void*)img, ori_img_w*3);
-    x_crop = get_subwindow_tracking(img_, target_pos, instance_size, int(s_x));
-    // time1.stop();
-    // time1.show_distance("Update stage ---- get subwindow cost time");
+    cv::Mat x_crop = get_subwindow_tracking(img_, target_pos, instance_size, int(s_x));
 
-    // update
     target_sz.x = target_sz.x * scale_z;
     target_sz.y = target_sz.y * scale_z;
 
     this->update(x_crop, scale_z);
-    target_pos.x = std::max(0, min(ori_img_w, target_pos.x));
-    target_pos.y = std::max(0, min(ori_img_h, target_pos.y));
-    target_sz.x = float(std::max(10, min(ori_img_w, int(target_sz.x))));
-    target_sz.y = float(std::max(10, min(ori_img_h, int(target_sz.y))));
 
-    // std::cout << "track target pos: " << target_pos << std::endl;
-    // std::cout << "track target_sz: " << target_sz << std::endl;
-}
-
-void LightTrack::load_model(std::string model_init, std::string model_update) {
-    this->net_init.load_param((model_init + ".param").c_str());
-    this->net_init.load_model((model_init + ".bin").c_str());
-    this->net_update.load_param((model_update + ".param").c_str());
-    this->net_update.load_model((model_update + ".bin").c_str());
+    target_pos.x = std::max(0, std::min(ori_img_w, target_pos.x));
+    target_pos.y = std::max(0, std::min(ori_img_h, target_pos.y));
+    target_sz.x = float(std::max(10, std::min(ori_img_w, int(target_sz.x))));
+    target_sz.y = float(std::max(10, std::min(ori_img_h, int(target_sz.y))));
 }
 
 void LightTrack::grids() {
