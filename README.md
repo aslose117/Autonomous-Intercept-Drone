@@ -36,7 +36,7 @@
 
 ### 2. 小目标无人机检测框架
 <div align="center">
-  <img src="assets/小目标无人机检测框架.jpg" alt="小目标检测框架" width="80%">
+  <img src="assets/小目标无人机检测框架.png" alt="小目标检测框架" width="80%">
   <p><i>（针对无人机“点目标”优化的视觉处理流程）</i></p>
 </div>
 
