@@ -20,7 +20,7 @@ except NameError:
 output_dir = os.path.join(base_dir, 'plots_output')
 os.makedirs(output_dir, exist_ok=True)
 
-csv_file = os.path.join(base_dir, 'vpng_intercept_stats_hover_escape.csv')
+csv_file = os.path.join(base_dir, 'vpng_intercept_stats_circle.csv')
 if not os.path.exists(csv_file):
     print(f"找不到 CSV 文件：{csv_file}")
     sys.exit(1)
