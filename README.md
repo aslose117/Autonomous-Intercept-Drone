@@ -55,7 +55,7 @@
 | **感知层** | 目标检测、像素误差计算、视线角提取 | `uav_vision_dectect`, `uav_vision_png` | **当前主方案** |
 | **制导层** | PNG 导引率计算、前置量补、轨迹生成 | `uav_png_intercept` | **纯PNG方案 (不依赖视觉)** |
 | **控制层** | PX4 Offboard 接口、速度/姿态闭环控制 | `uav_vehicle_controller`, `px4_ros_com` | 核心控制底座 |
-| **仿真层** | 目标机动态模拟、拦截环境生成 | `uav_target_sim` | 仿真支持 |
+| **仿真层** | 目标机动态模拟、多运动模式支持、拦截环境生成 | `uav_target_sim` | 仿真支持 |
 | **早期方案** | 基于图像的视觉伺服控制方案 | `uav_ibvs_control` | **已放弃 (代码仅供保留参考)** |
 
 ---
@@ -118,8 +118,25 @@ source install/setup.bash
 
 1. **启动目标机仿真**:
    ```bash
+   # 默认圆周运动
    ros2 run uav_target_sim uav_target_sim
+
+   # 或通过参数选择运动模式和活动范围
+   ros2 run uav_target_sim uav_target_sim --ros-args -p motion_mode:=sinusoidal -p max_range:=10.0
+
+   # 也可使用 launch 文件
+   ros2 launch uav_target_sim target_sim.launch.py motion_mode:=random_walk
    ```
+
+   **支持的目标运动模式**：
+
+   | 参数值 | 运动模式 | 运动学公式 | 特点 |
+   | :--- | :--- | :--- | :--- |
+   | `circle` | 匀速圆周 | R=5m, w=0.5rad/s | 默认模式，半径5m匀速圆周运动 |
+   | `sinusoidal` | 正弦机动 | a=0.5*sin(0.5t) m/s<sup>2</sup> | 前向匀速1m/s + 侧向正弦加速度，周期性规避 |
+   | `random_walk` | 随机游走 | v(t+dt) = v(t) + N(0, 0.2) | 速度随机扰动，限速3m/s，无规律逃逸 |
+
+   > `max_range` 参数（默认10m）控制目标活动范围，防止目标飞出拦截机视野。
 2. **启动视觉检测**:
    ```bash
    ros2 run uav_vision_dectect uav_vision_dectect

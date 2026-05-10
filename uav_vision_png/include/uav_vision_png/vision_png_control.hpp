@@ -271,7 +271,7 @@ private:
     bool target_pos_ok_ = false;
 
     // 命中判定半径（统计用）
-    float hit_radius_ = 0.5f;
+    float hit_radius_ = 0.8f;
 
     // CSV 文件
     std::ofstream csv_file_;

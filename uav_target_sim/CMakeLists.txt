@@ -71,3 +71,6 @@ ament_target_dependencies(uav_target_sim
 install(TARGETS
         uav_target_sim
         DESTINATION lib/${PROJECT_NAME})
+
+install(DIRECTORY launch/
+        DESTINATION share/${PROJECT_NAME}/launch)

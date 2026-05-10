@@ -12,33 +12,51 @@
 
 #include <chrono>
 #include <iostream>
+#include <algorithm>
+#include <random>
 #include <px4_msgs/msg/sensor_gps.hpp>
-
-#include <fstream>    // std::ofstream
-#include <iomanip>    // std::setprecision
 
 using namespace std::chrono;
 using namespace std::chrono_literals;
 using namespace px4_msgs::msg;
 
 
-
 UavTargetControl::UavTargetControl() : Node("uav_target_sim")
 {
-    // --- 发布者配置 ---
-    offboard_control_mode_publisher_ = this->create_publisher<OffboardControlMode>("/px4_2/fmu/in/offboard_control_mode", 10);
-    trajectory_setpoint_publisher_ = this->create_publisher<TrajectorySetpoint>("/px4_2/fmu/in/trajectory_setpoint", 10);
-    vehicle_command_publisher_ = this->create_publisher<VehicleCommand>("/px4_2/fmu/in/vehicle_command", 10);
+    // --- 参数声明与解析 ---
+    this->declare_parameter<std::string>("motion_mode", "circle");
+    this->declare_parameter<double>("max_range", 10.0);
 
-    // --- 订阅者配置 (使用 Sensor Data QoS) ---
+    std::string mode_str = this->get_parameter("motion_mode").as_string();
+    max_range_ = static_cast<float>(this->get_parameter("max_range").as_double());
+
+    if (mode_str == "circle")           motion_mode_ = MotionMode::CIRCLE;
+    else if (mode_str == "sinusoidal")  motion_mode_ = MotionMode::SINUSOIDAL;
+    else if (mode_str == "random_walk") motion_mode_ = MotionMode::RANDOM_WALK;
+    else {
+        RCLCPP_WARN(this->get_logger(),
+            "Unknown motion_mode '%s', defaulting to 'circle'", mode_str.c_str());
+        motion_mode_ = MotionMode::CIRCLE;
+    }
+
+    RCLCPP_INFO(this->get_logger(), "=== Motion mode: %s | max_range: %.1fm ===",
+        mode_str.c_str(), max_range_);
+
+    // --- 发布者配置 ---
+    offboard_control_mode_publisher_ =
+        this->create_publisher<OffboardControlMode>("/px4_2/fmu/in/offboard_control_mode", 10);
+    trajectory_setpoint_publisher_ =
+        this->create_publisher<TrajectorySetpoint>("/px4_2/fmu/in/trajectory_setpoint", 10);
+    vehicle_command_publisher_ =
+        this->create_publisher<VehicleCommand>("/px4_2/fmu/in/vehicle_command", 10);
+
+    // --- 订阅者配置 ---
     rmw_qos_profile_t qos_profile = rmw_qos_profile_sensor_data;
     auto qos = rclcpp::QoS(rclcpp::QoSInitialization(qos_profile.history, 5), qos_profile);
+
     vehicle_rates_setpoint_subscription_ = this->create_subscription<VehicleRatesSetpoint>(
         "/px4_2/fmu/out/vehicle_rates_setpoint", qos,
-        [this](const VehicleRatesSetpoint::SharedPtr msg) {
-            // 频率较高，建议仅在调试时开启打印
-            // std::cout << "Thrust: " << msg->thrust_body[2] << std::endl;
-        });
+        [this](const VehicleRatesSetpoint::SharedPtr msg) { (void)msg; });
 
     global_position_sub_ = this->create_subscription<SensorGps>(
         "/px4_2/fmu/out/vehicle_gps_position", qos,
@@ -46,29 +64,36 @@ UavTargetControl::UavTargetControl() : Node("uav_target_sim")
 
     // --- 状态变量初始化 ---
     offboard_setpoint_counter_ = 0;
-    theta_ = 0.0;
-    angular_speed_ = 0.05; // 弧度/周期 (10Hz下约 0.5 rad/s)
+    theta_ = 0.0f;
+    angular_speed_ = 0.05f;
 
-    // --- 定时器：核心逻辑控制 ---
+    pos_x_ = 5.0f;
+    pos_y_ = 0.0f;
+    pos_z_ = -5.0f;
+    vel_x_ = 0.0f;
+    vel_y_ = 0.0f;
+    sim_time_ = 0.0f;
+
+    if (motion_mode_ == MotionMode::SINUSOIDAL) {
+        vel_x_ = base_speed_;
+    }
+
+    // --- 定时器 ---
     timer_ = this->create_wall_timer(100ms, [this]() {
-        // 1. 必须始终发送 Offboard 模式心跳信号（否则 PX4 会退出该模式）
         publish_offboard_control_mode();
 
         if (offboard_setpoint_counter_ < 15) {
-            // 阶段 A: 发送初始点，不切换模式 (PX4 要求在进入 Offboard 前必须有数据流)
             publish_trajectory_setpoint(5.0, 0.0, -5.0);
             offboard_setpoint_counter_++;
-        } 
+        }
         else if (offboard_setpoint_counter_ == 15) {
-            // 阶段 B: 只在第 15 次循环发送切换模式和解锁指令
             RCLCPP_INFO(this->get_logger(), "Switching to Offboard and Arming...");
             this->publish_vehicle_command(VehicleCommand::VEHICLE_CMD_DO_SET_MODE, 1, 6);
             this->arm();
             offboard_setpoint_counter_++;
-        } 
+        }
         else {
-            // 阶段 C: 成功进入后，执行圆周运动
-            move_in_circle();
+            execute_motion();
         }
     });
 }
@@ -97,101 +122,125 @@ void UavTargetControl::publish_trajectory_setpoint(float x, float y, float z) {
     trajectory_setpoint_publisher_->publish(msg);
 }
 
+// ============================================================
+//  边界约束：超出 max_range_ 时施加回复力
+//  目标靠近边界会被平滑拉回，保证不飞出拦截机视野
+// ============================================================
+void UavTargetControl::apply_boundary() {
+    float dx = pos_x_ - boundary_center_x_;
+    float dy = pos_y_ - boundary_center_y_;
+    float dist = std::sqrt(dx * dx + dy * dy);
+
+    if (dist > max_range_ * 0.8f && dist > 0.01f) {
+        // 从80%处开始施加渐进回复力
+        float overshoot = (dist - max_range_ * 0.8f) / (max_range_ * 0.2f);
+        float restore = 3.0f * overshoot * overshoot;
+        float nx = dx / dist;
+        float ny = dy / dist;
+        vel_x_ -= restore * nx * dt_;
+        vel_y_ -= restore * ny * dt_;
+    }
+}
+
+// ============================================================
+//  运动模式调度
+// ============================================================
+void UavTargetControl::execute_motion() {
+    switch (motion_mode_) {
+        case MotionMode::CIRCLE:       move_in_circle();    break;
+        case MotionMode::SINUSOIDAL:   move_sinusoidal();   break;
+        case MotionMode::RANDOM_WALK:  move_random_walk();  break;
+    }
+}
+
+// ============================================================
+//  1. 匀速圆周运动 (原有, 天然有界无需约束)
+// ============================================================
 void UavTargetControl::move_in_circle() {
     theta_ += angular_speed_;
     if (theta_ > 2 * M_PI) theta_ -= 2 * M_PI;
 
-    float radius = 5.0;
-    float new_x = radius * cos(theta_);
-    float new_y = radius * sin(theta_);
+    float x = radius_ * std::cos(theta_);
+    float y = radius_ * std::sin(theta_);
 
     TrajectorySetpoint msg{};
-    msg.position = {new_x, new_y, -5.0}; // NED 坐标系：-5 代表高度 5 米
-    msg.yaw = theta_; // 让机头始终指向圆周切线或圆心方向（根据需求调整）
+    msg.position = {x, y, -5.0};
+    msg.yaw = theta_;
     msg.timestamp = this->get_clock()->now().nanoseconds() / 1000;
     trajectory_setpoint_publisher_->publish(msg);
 }
 
-/**
- * @brief Publish vehicle commands
- * @param command   Command code (matches VehicleCommand and MAVLink MAV_CMD codes)
- * @param param1    Command parameter 1
- * @param param2    Command parameter 2
- */
+// ============================================================
+//  2. 正弦机动: a_T = A*sin(ωt), A=0.5m/s², ω=0.5rad/s
+//     前向匀速 + 侧向正弦加速度 + 边界约束
+// ============================================================
+void UavTargetControl::move_sinusoidal() {
+    sim_time_ += dt_;
+
+    float a_y = sin_amplitude_ * std::sin(sin_omega_ * sim_time_);
+    vel_y_ += a_y * dt_;
+
+    apply_boundary();
+
+    pos_x_ += vel_x_ * dt_;
+    pos_y_ += vel_y_ * dt_;
+
+    TrajectorySetpoint msg{};
+    msg.position = {pos_x_, pos_y_, pos_z_};
+    msg.yaw = std::atan2(vel_y_, vel_x_);
+    msg.timestamp = this->get_clock()->now().nanoseconds() / 1000;
+    trajectory_setpoint_publisher_->publish(msg);
+}
+
+// ============================================================
+//  3. 随机游走: v_T(t+Δt) = v_T(t) + N(0, σ_v), σ_v=0.2m/s
+//     无规律逃逸 + 边界约束
+// ============================================================
+void UavTargetControl::move_random_walk() {
+    vel_x_ += sigma_v_ * normal_dist_(rng_);
+    vel_y_ += sigma_v_ * normal_dist_(rng_);
+
+    float speed = std::sqrt(vel_x_ * vel_x_ + vel_y_ * vel_y_);
+    if (speed > max_speed_) {
+        vel_x_ *= max_speed_ / speed;
+        vel_y_ *= max_speed_ / speed;
+    }
+
+    apply_boundary();
+
+    pos_x_ += vel_x_ * dt_;
+    pos_y_ += vel_y_ * dt_;
+
+    TrajectorySetpoint msg{};
+    msg.position = {pos_x_, pos_y_, pos_z_};
+    msg.yaw = std::atan2(vel_y_, vel_x_);
+    msg.timestamp = this->get_clock()->now().nanoseconds() / 1000;
+    trajectory_setpoint_publisher_->publish(msg);
+}
+
+// ============================================================
+//  Vehicle command & GPS callback
+// ============================================================
 void UavTargetControl::publish_vehicle_command(uint16_t command, float param1, float param2)
 {
-	VehicleCommand msg{};
-	msg.param1 = param1;
-	msg.param2 = param2;
-	msg.command = command;
-	msg.target_system = 3;
-	msg.target_component = 1;
-	msg.source_system = 1;
-	msg.source_component = 1;
-	msg.from_external = true;
-	msg.timestamp = this->get_clock()->now().nanoseconds() / 1000;
-	vehicle_command_publisher_->publish(msg);
+    VehicleCommand msg{};
+    msg.param1 = param1;
+    msg.param2 = param2;
+    msg.command = command;
+    msg.target_system = 3;
+    msg.target_component = 1;
+    msg.source_system = 1;
+    msg.source_component = 1;
+    msg.from_external = true;
+    msg.timestamp = this->get_clock()->now().nanoseconds() / 1000;
+    vehicle_command_publisher_->publish(msg);
 }
 
 void UavTargetControl::global_position_callback(const px4_msgs::msg::SensorGps::SharedPtr msg)
 {
-    (void)msg; 
+    (void)msg;
     if (!msg) {
         RCLCPP_WARN(this->get_logger(), "Received null GPS message");
         return;
     }
-
-    // static bool initialized = false;
-    // static std::ofstream log_file;          // ← 只初始化一次
-
-    // // 打开文件（仅第一次执行时）
-    // if (!log_file.is_open()) {
-    //     log_file.open("/home/verser/ros2_ws/src/uav_target_sim/xyz_log.txt", std::ios::out | std::ios::app);
-    //     if (!log_file.is_open()) {
-    //         RCLCPP_ERROR(this->get_logger(), "无法打开日志文件！");
-    //         return;
-    //     }
-    //     log_file << "timestamp, world_x, world_y, world_z\n";  // 写表头
-    // }
-
-    // px4_msgs::msg::SensorGps::SharedPtr target_sim_position = msg;
-    // Geocentric earth(Constants::WGS84_a(), Constants::WGS84_f());
-
-    // RCLCPP_INFO(this->get_logger(), "gps_position:%f, %f, %f",
-    //     target_sim_position->latitude_deg,
-    //     target_sim_position->longitude_deg,
-    //     target_sim_position->altitude_msl_m);
-
-    // if (!initialized) {
-    //     earth.Forward(
-    //         target_sim_position->latitude_deg,
-    //         target_sim_position->longitude_deg,
-    //         target_sim_position->altitude_msl_m,
-    //         this->init_enu_xyz[0], this->init_enu_xyz[1], this->init_enu_xyz[2]);
-    //     RCLCPP_INFO(this->get_logger(), "init_xyz:%f, %f, %f",
-    //         this->init_enu_xyz[0], this->init_enu_xyz[1], this->init_enu_xyz[2]);
-    //     initialized = true;
-    // }
-
-    // earth.Forward(
-    //     target_sim_position->latitude_deg,
-    //     target_sim_position->longitude_deg,
-    //     target_sim_position->altitude_msl_m,
-    //     this->enu_xyz[0], this->enu_xyz[1], this->enu_xyz[2]);
-
-    // double world_x = this->enu_xyz[0] - this->init_enu_xyz[0];
-    // double world_y = this->enu_xyz[1] - this->init_enu_xyz[1];
-    // double world_z = this->enu_xyz[2] - this->init_enu_xyz[2];
-
-    // RCLCPP_INFO(this->get_logger(), "world xyz: x=%f, y=%f, z=%f",
-    //     world_x, world_y, world_z);
-
-    // // 获取当前时间戳（秒）并写入文件
-    // double timestamp = this->now().seconds();
-    // log_file << std::fixed << std::setprecision(6)
-    //          << timestamp << ", "
-    //          << world_x   << ", "
-    //          << world_y   << ", "
-    //          << world_z   << "\n";
-    // log_file.flush();   // ← 确保每次都实时写入磁盘
 }
