@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(xargs ls:*)",
+      "Read(//home/verser/ros2_ws/**)",
+      "Bash(colcon build:*)",
+      "Bash(find /home/verser/ros2_ws -type f \\\\\\(-name *.params -o -name *.param -o -name *airframe* -o -name *.yaml -o -name *.yml -o -name *.launch -o -name *.launch.py -o -name *.world -o -name *.sdf -o -name *.xml \\\\\\))",
+      "Bash(find /home/verser/ros2_ws -name *.launch.py -o -name *.launch.xml)",
+      "Bash(find /home/verser/Git/PX4-Autopilot -name *.world -o -name *.sdf)",
+      "Bash(find /home/verser/Git/PX4-Autopilot -name sitl_gazebo* -type f)",
+      "Bash(find /home/verser/Git/PX4-Autopilot -name gz_x500* -o -name *x500*)",
+      "Bash(xargs cat:*)",
+      "Bash(find /home/verser -path */px4_*/eeprom* -o -path */rootfs*/eeprom*)",
+      "Bash(find /home/verser/PX4-Autopilot/src -name mc_pos_control_params* -o -name FlightTaskAuto*)"
+    ]
+  }
+}

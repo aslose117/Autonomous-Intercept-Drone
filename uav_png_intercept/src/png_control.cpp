@@ -3,7 +3,7 @@
  *
  * 控制: px4_1（拦截机）  拦截: px4_2（目标，由 uav_target_sim 控制）
  *
- * 坐标系方案（关键修复）：
+ * 坐标系方案：
  *   ► 订阅 SensorGps（非 VehicleLocalPosition.ref_lat），可靠性更高
  *   ► 以 px4_1 的第一个 GPS 读数为 LocalCartesian 原点
  *   ► 将 px4_2 的 GPS 实时转换到该坐标系下 → target_pos_（NED）
