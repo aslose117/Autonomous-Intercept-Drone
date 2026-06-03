@@ -22,7 +22,7 @@ def generate_launch_description():
 
     # 允许命令行覆盖关键参数
     declare_speed = DeclareLaunchArgument(
-        'speed_cmd', default_value='10.0',
+        'speed_cmd', default_value='5.0',
         description='期望冲击速度上限 (m/s)')
 
     declare_N = DeclareLaunchArgument(
