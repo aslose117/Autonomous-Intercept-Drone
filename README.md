@@ -159,13 +159,10 @@ source install/setup.bash
    | `random_walk` | 随机游走 | v(t+dt) = v(t) + N(0, 0.2) | 速度随机扰动，限速3m/s，无规律逃逸 |
 
    > `max_range` 参数（默认10m）控制目标活动范围，防止目标飞出拦截机视野。
-2. **启动视觉检测**:
+
+2. **启动视觉制导拦截**:
    ```bash
-   ros2 run uav_vision_dectect uav_vision_dectect
-   ```
-3. **启动视觉制导拦截**:
-   ```bash
-   # 直接运行（使用 .hpp 中的默认参数）
+   # 推荐直接运行（使用 .hpp 中的默认参数）
    ros2 run uav_vision_png uav_vision_png
 
    # 或通过 launch 文件加载 config/params.yaml 中的参数
@@ -180,6 +177,10 @@ source install/setup.bash
    > - 调试时可用 `ros2 param get /uav_vision_png <参数名>` 查看当前实际生效的值
    > - 可调参数详见 `uav_vision_png/config/params.yaml`，含 PNG 增益、视场补偿、起飞高度等
 
+3. **启动视觉检测**:
+   ```bash
+   ros2 run uav_vision_dectect uav_vision_dectect
+   ```
 ---
 
 ---

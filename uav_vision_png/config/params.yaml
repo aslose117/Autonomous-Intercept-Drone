@@ -31,7 +31,7 @@ uav_vision_png:
     # ey<0 表示目标在画面上方，补偿 vz_cmd += -k_ey * ey（使无人机上升）
     # 图像高 1080px，最大误差 540px，期望最大补偿 3 m/s
     # k_ey = 3.0 / 540 ≈ 0.0056，可根据实际飞行效果调整
-    k_ey: 0.0006
+    k_ey: 0.0056
 
     # ---- 起飞参数 ----
     # NED z（负值 = 上升），目标待机高度 5m
@@ -45,6 +45,6 @@ uav_vision_png:
 
     # ---- 统计参数 ----
     # 命中判定半径 (m)
-    hit_radius: 0.5
+    hit_radius: 0.8
     # CSV 输出路径
     csv_path: "/home/verser/ros2_ws/vpng_intercept_stats.csv"
