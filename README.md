@@ -165,8 +165,20 @@ source install/setup.bash
    ```
 3. **启动视觉制导拦截**:
    ```bash
+   # 直接运行（使用 .hpp 中的默认参数）
    ros2 run uav_vision_png uav_vision_png
+
+   # 或通过 launch 文件加载 config/params.yaml 中的参数
+   ros2 launch uav_vision_png vision_png.launch.py
    ```
+
+   > **参数配置说明**：`uav_vision_png` 节点的参数优先级为：
+   >   **launch 命令行 > params.yaml > .hpp 成员初始值**
+   >
+   > - 使用 `ros2 run` 直接启动：参数取 `.hpp` 中的默认值，**`params.yaml` 不会自动加载**，需手动传参 `--ros-args -p 参数名:=值`
+   > - 使用 `ros2 launch` 启动：launch 文件自动加载 `config/params.yaml`，YAML 中的值会覆盖 `.hpp` 默认值
+   > - 调试时可用 `ros2 param get /uav_vision_png <参数名>` 查看当前实际生效的值
+   > - 可调参数详见 `uav_vision_png/config/params.yaml`，含 PNG 增益、视场补偿、起飞高度等
 
 ---
 
