@@ -77,29 +77,27 @@ echo ""
 echo "⏳ 等待 Gazebo 世界加载 (15 秒)..."
 sleep 15
 
-# -------------------------------------------------------
-# 4. 启动 ROS 2 相机话题桥接
-#    Gazebo 话题 -> ROS 2 /camera/image
-# -------------------------------------------------------
-echo ""
-echo "🌉 正在启动 ROS 2 相机桥接..."
-GAZEBO_CAM_TOPIC="/world/grass_world/model/x500_depth_1/link/camera_link/sensor/IMX214/image"
-ROS2_CAM_TOPIC="/camera/image"
+	# -------------------------------------------------------
+	# 4. 启动 ROS 2 相机桥接 (YAML 内嵌，直接映射到 /camera/image)
+	# -------------------------------------------------------
+	echo ""
+	echo "🌉 正在启动 ROS 2 相机桥接..."
 
-ros2 run ros_gz_bridge parameter_bridge \
-    "${GAZEBO_CAM_TOPIC}@sensor_msgs/msg/Image@gz.msgs.Image" \
-    --ros-args -r "${GAZEBO_CAM_TOPIC}:=${ROS2_CAM_TOPIC}" \
-    2>&1 | rotatelogs -n $LOG_MAX_FILES bridge.log $LOG_MAX_SIZE &
-PID_BRIDGE=$!
-echo "   -> Bridge PID: $PID_BRIDGE (日志: bridge.log, 最大 ${LOG_MAX_SIZE} x${LOG_MAX_FILES})"
-echo "   -> Gazebo 话题 : ${GAZEBO_CAM_TOPIC}"
-echo "   -> ROS 2 话题  : ${ROS2_CAM_TOPIC}"
-sleep 2
+	cat > /tmp/camera_bridge.yaml << 'YEOF'
+- ros_topic_name: "/camera/image"
+  gz_topic_name: "/world/grass_world/model/x500_depth_1/link/camera_link/sensor/IMX214/image"
+  ros_type_name: "sensor_msgs/msg/Image"
+  gz_type_name: "gz.msgs.Image"
+  direction: GZ_TO_ROS
+YEOF
 
-# -------------------------------------------------------
-# 5. 启动第二架无人机 (普通版, Instance 2)
-#    PX4_GZ_STANDALONE=1 表示连接已有的 Gazebo 服务器
-# -------------------------------------------------------
+	ros2 run ros_gz_bridge parameter_bridge \
+	    --ros-args -p config_file:="/tmp/camera_bridge.yaml" \
+	    2>&1 | rotatelogs -n $LOG_MAX_FILES bridge.log $LOG_MAX_SIZE &
+	PID_BRIDGE=$!
+	echo "   -> Bridge PID: $PID_BRIDGE (bridge.log)"
+	echo "   -> /camera/image"
+	sleep 2
 echo ""
 echo "🚀 正在启动 Drone 2 (gz_x500, Instance 2)..."
 PX4_GZ_STANDALONE=1 \
