@@ -102,7 +102,8 @@
 
 ### 1. 环境依赖
 *   **ROS 2 Version**: Humble
-*   **PX4 Firmware**: v1.16
+*   **Gazebo**:Gazebo Harmonic（gz-sim 8.12.0）
+*   **PX4 Firmware**: v1.16 (**Micro-XRCE-DDS-Agent**版本推荐v2.4.x)
 *   **Dependencies**: OpenCV, PyTorch, colcon
 
 ### 2. 编译项目
@@ -115,6 +116,27 @@ source install/setup.bash
 
 ### 3. 运行拦截任务 (步骤序列)
 请按以下顺序在不同终端中运行各节点：
+
+
+0. **启动仿真环境**:
+   启动前，需将本仓库的仿真资源复制到 PX4-Autopilot 目录下：
+
+   ```bash
+   # 步骤1: 将本仓库的 run_swarm.sh 复制到 PX4-Autopilot 根目录（若尚未复制）
+   cp ros2_ws/src/run_swarm.sh ~/PX4-Autopilot/
+
+   # 步骤2: 将自定义世界文件复制到 PX4 Gazebo 世界目录
+   cp ros2_ws/src/assets/gazebo_world/grass_world.sdf ~/PX4-Autopilot/Tools/simulation/gz/worlds/
+   ```
+
+   > 以上步骤只需执行一次。之后每次启动仿真，直接进入 PX4-Autopilot 目录运行启动脚本即可：
+   ```bash
+   cd ~/PX4-Autopilot
+   ./run_swarm.sh
+   ```
+
+   该脚本会自动启动 Gazebo 仿真服务器、两架无人机（px4_1 拦截机 + px4_2 目标机）、MicroXRCEAgent 以及相机话题桥接。
+
 
 1. **启动目标机仿真**:
    ```bash
