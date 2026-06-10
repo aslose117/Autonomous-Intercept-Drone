@@ -1,0 +1,29 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>uav_rl_guidance</name>
+  <version>0.1.0</version>
+  <description>
+    Learned guidance law (GRU policy) for vision-based UAV interception.
+    Drop-in replacement for uav_vision_png: same topics, same state machine,
+    same CSV statistics format. The policy is trained in the lightweight
+    kinematic gym (/home/verser/Python/guidance_rl) via BC + PPO, exported
+    as TorchScript. A built-in PNG fallback takes over on policy anomaly
+    (watchdog) or when fallback_png:=true (A/B baseline mode).
+  </description>
+  <maintainer email="developer@uav.local">uav_dev</maintainer>
+  <license>Apache-2.0</license>
+
+  <depend>rclpy</depend>
+  <depend>std_msgs</depend>
+  <depend>sensor_msgs</depend>
+  <depend>px4_msgs</depend>
+  <depend>uav_common_msg</depend>
+
+  <test_depend>ament_lint_auto</test_depend>
+  <test_depend>ament_lint_common</test_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>
