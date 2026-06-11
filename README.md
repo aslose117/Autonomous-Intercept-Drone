@@ -54,6 +54,7 @@
 | :--- | :--- | :--- | :--- |
 | **感知层** | 目标检测、像素误差计算、视线角提取 | `uav_vision_dectect`, `uav_vision_png` | **当前主方案** |
 | **制导层** | PNG 导引率计算、前置量补、轨迹生成 | `uav_png_intercept` | **纯PNG方案 (不依赖视觉)** |
+| **学习制导** | 基于强化学习的 GRU 策略制导，取代传统 PNG | `uav_rl_guidance` | 🆕 **RL 方案 (替代 vision_png)** |
 | **控制层** | PX4 Offboard 接口、速度/姿态闭环控制 | `uav_vehicle_controller`, `px4_ros_com` | 核心控制底座 |
 | **仿真层** | 目标机动态模拟、多运动模式支持、拦截环境生成 | `uav_target_sim` | 仿真支持 |
 | **早期方案** | 基于图像的视觉伺服控制方案 | `uav_ibvs_control` | **已放弃 (代码仅供保留参考)** |
@@ -176,6 +177,28 @@ source install/setup.bash
    > - 使用 `ros2 launch` 启动：launch 文件自动加载 `config/params.yaml`，YAML 中的值会覆盖 `.hpp` 默认值
    > - 调试时可用 `ros2 param get /uav_vision_png <参数名>` 查看当前实际生效的值
    > - 可调参数详见 `uav_vision_png/config/params.yaml`，含 PNG 增益、视场补偿、起飞高度等
+
+2-备. **启动 RL 学习制导拦截 (替代方案)** 🆕:
+   `uav_rl_guidance` 是基于强化学习（BC + PPO）训练的 GRU 策略制导节点，用于取代传统 PNG 算法。
+   它与 `uav_vision_png` 保持相同的话题接口、状态机和 CSV 统计格式，可无缝替换。
+
+   ```bash
+   # 方式1：launch 启动（自动加载 config/params.yaml）
+   ros2 launch uav_rl_guidance rl_guidance.launch.py
+
+   # 方式2：直接运行（使用代码默认参数）
+   ros2 run uav_rl_guidance uav_rl_guidance
+
+   # A/B 基线模式：全程使用内置 PNG，不加载策略模型（与 uav_vision_png 等价）
+   ros2 launch uav_rl_guidance rl_guidance.launch.py fallback_png:=true
+
+   # 切换策略版本：v1 = bbox特征GRU（阶段一），v2 = CNN+GRU图像策略（阶段二）
+   ros2 launch uav_rl_guidance rl_guidance.launch.py model_version:=v2
+   ```
+
+   > **架构说明**：RL 策略在 INTERCEPT 阶段输出速度指令；若策略出现异常（watchdog），自动回退到内置 PNG 控制器。
+   > 策略模型（TorchScript `.pt`）存放在 `uav_rl_guidance/models/` 下，
+   > 训练代码位于 `/home/verser/Python/guidance_rl`。
 
 3. **启动视觉检测**:
    ```bash
