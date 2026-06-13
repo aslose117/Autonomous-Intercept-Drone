@@ -181,6 +181,7 @@ source install/setup.bash
 2-备. **启动 RL 学习制导拦截 (替代方案)** 🆕:
    `uav_rl_guidance` 是基于强化学习（BC + PPO）训练的 GRU 策略制导节点，用于取代传统 PNG 算法。
    它与 `uav_vision_png` 保持相同的话题接口、状态机和 CSV 统计格式，可无缝替换。
+   使用 ONNX Runtime 推理，零 PyTorch 依赖，纯 C++ 实现。
 
    ```bash
    # 方式1：launch 启动（自动加载 config/params.yaml）
@@ -192,13 +193,13 @@ source install/setup.bash
    # A/B 基线模式：全程使用内置 PNG，不加载策略模型（与 uav_vision_png 等价）
    ros2 launch uav_rl_guidance rl_guidance.launch.py fallback_png:=true
 
-   # 切换策略版本：v1 = bbox特征GRU（阶段一），v2 = CNN+GRU图像策略（阶段二）
-   ros2 launch uav_rl_guidance rl_guidance.launch.py model_version:=v2
+   # 台架调试：跳过起飞，直接进入 SEARCHING
+   ros2 launch uav_rl_guidance rl_guidance.launch.py bench_test:=true
    ```
 
    > **架构说明**：RL 策略在 INTERCEPT 阶段输出速度指令；若策略出现异常（watchdog），自动回退到内置 PNG 控制器。
-   > 策略模型（TorchScript `.pt`）存放在 `uav_rl_guidance/models/` 下，
-   > 训练代码位于 `/home/verser/Python/guidance_rl`。
+   > 策略模型（ONNX `.onnx`）存放在 `uav_rl_guidance/models/` 下，
+   > 训练代码位于 `/home/verser/Python/guidance_rl`。更新模型时执行 `python3 uav_rl_guidance/src/export_onnx.py`。
 
 3. **启动视觉检测**:
    ```bash
