@@ -25,6 +25,7 @@
 #include <tuple>
 #include <array>
 #include <cmath>
+#include <memory>
 
 // PX4 消息
 #include <px4_msgs/msg/offboard_control_mode.hpp>
@@ -205,9 +206,10 @@ private:
     bool bench_test_    = false;      // skip takeoff for bench test
 
     // ONNX Runtime 成员
-    Ort::Env ort_env_{nullptr};
-    Ort::Session ort_session_{nullptr};
-    Ort::AllocatorWithDefaultOptions ort_allocator_{};
+    Ort::Env ort_env_;
+    Ort::SessionOptions ort_session_opts_;
+    std::unique_ptr<Ort::Session> ort_session_;
+    Ort::AllocatorWithDefaultOptions ort_allocator_;
     Ort::MemoryInfo ort_memory_info_{nullptr};
     std::string ort_input_name_obs_;
     std::string ort_input_name_h_;

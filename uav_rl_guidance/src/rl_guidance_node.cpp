@@ -2,7 +2,7 @@
  * rl_guidance_node.cpp
  *
  * 基于强化学习 (GRU 策略) 的视觉制导拦截节点 — C++ 实现
- * 模型推理使用 ONNX Runtime — 零 PyTorch 依赖
+ * 模型推理使用 ONNX Runtime
  * ── uav_vision_png 的可替换实现
  */
 
@@ -119,7 +119,7 @@ RLGuidanceNode::policy_inference(
                                   ort_output_name_h_.c_str()};
     Ort::Value inputs[] = {std::move(obs_tensor), std::move(h_tensor)};
 
-    auto outputs = ort_session_.Run(Ort::RunOptions{nullptr},
+    auto outputs = ort_session_->Run(Ort::RunOptions{nullptr},
         input_names, inputs, 2, output_names, 2);
 
     // 输出: action [1, 4], h_out [1, 1, 128]
@@ -333,7 +333,8 @@ void RLGuidanceNode::png_reset()
 // ============================================================
 
 RLGuidanceNode::RLGuidanceNode()
-    : Node("uav_rl_guidance")
+    : Node("uav_rl_guidance"),
+      ort_env_(ORT_LOGGING_LEVEL_WARNING, "RLGuidance")
 {
     // ---- 声明参数 ----
     this->declare_parameter("model_path",
@@ -392,12 +393,13 @@ RLGuidanceNode::RLGuidanceNode()
             opts.SetGraphOptimizationLevel(
                 GraphOptimizationLevel::ORT_ENABLE_ALL);
 
-            ort_session_ = Ort::Session(ort_env_, model_path.c_str(), opts);
+            ort_session_ = std::make_unique<Ort::Session>(
+                ort_env_, model_path.c_str(), opts);
 
-            auto name0 = ort_session_.GetInputNameAllocated(0, ort_allocator_);
-            auto name1 = ort_session_.GetInputNameAllocated(1, ort_allocator_);
-            auto oname0 = ort_session_.GetOutputNameAllocated(0, ort_allocator_);
-            auto oname1 = ort_session_.GetOutputNameAllocated(1, ort_allocator_);
+            auto name0 = ort_session_->GetInputNameAllocated(0, ort_allocator_);
+            auto name1 = ort_session_->GetInputNameAllocated(1, ort_allocator_);
+            auto oname0 = ort_session_->GetOutputNameAllocated(0, ort_allocator_);
+            auto oname1 = ort_session_->GetOutputNameAllocated(1, ort_allocator_);
 
             ort_input_name_obs_    = name0.get();
             ort_input_name_h_      = name1.get();
