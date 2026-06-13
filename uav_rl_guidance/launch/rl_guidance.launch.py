@@ -20,6 +20,8 @@ def generate_launch_description():
     return LaunchDescription([
         DeclareLaunchArgument("fallback_png", default_value="false",
                               description="true = 全程 PNG 基线（A/B 对比）"),
+        DeclareLaunchArgument("bench_test", default_value="false",
+                              description="true = 跳过起飞，直接 SEARCHING（台架调试）"),
         DeclareLaunchArgument("csv_path",
                               default_value="/home/verser/ros2_ws/rl_intercept_stats.csv"),
         Node(
@@ -30,6 +32,7 @@ def generate_launch_description():
             parameters=[
                 params,
                 {"fallback_png": LaunchConfiguration("fallback_png"),
+                 "bench_test": LaunchConfiguration("bench_test"),
                  "csv_path": LaunchConfiguration("csv_path")},
             ],
         ),
