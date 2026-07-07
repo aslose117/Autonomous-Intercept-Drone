@@ -105,7 +105,7 @@
 *   **ROS 2 Version**: Humble
 *   **Gazebo**:Gazebo Harmonic（gz-sim 8.12.0）
 *   **PX4 Firmware**: v1.16 (**Micro-XRCE-DDS-Agent**版本推荐v2.4.x)
-*   **Dependencies**: OpenCV, PyTorch, colcon
+*   **Dependencies**: OpenCV, onnx, colcon
 
 ### 2. 编译项目
 ```bash
