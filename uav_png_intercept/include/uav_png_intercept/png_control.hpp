@@ -99,7 +99,7 @@ private:
     const float N_{4.0f};               // 导引比
     const float intercept_speed_{8.0f}; // 最大拦截速度 m/s
     const float takeoff_alt_{-5.0f};    // 起飞 NED 高度（与目标一致）
-    const float hit_radius_{0.8f};      // 判定命中距离 m
+    const float hit_radius_{0.5f};      // 判定命中距离 m
     const float dt_{0.05f};             // 控制周期 20Hz
 
     // -------- 数据记录 --------

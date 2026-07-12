@@ -190,16 +190,17 @@ Eigen::Vector3f PngInterceptor::compute_png_velocity(
     }
 
     // ---- 水平速度分量（PNG 控制方位 + 仰角）----
-    float d_v = self_vel_.norm() + 4.0f;
+    float d_v = self_vel_.norm() + 2.0f;   // 缓加速，避免大幅俯仰导致目标出视野
     d_v = std::min(d_v, intercept_speed_);
     d_v = std::max(d_v, 2.0f);
 
     float vx = cosf(d_v_angle_v_) * sinf(d_v_angle_z_) * d_v;  // North
     float vy = cosf(d_v_angle_v_) * cosf(d_v_angle_z_) * d_v;  // East
 
-    // ---- 垂直速度分量（独立 P 控制，直接跟随目标高度）----
-    // 不依赖 PNG 仰角计算 vz，彻底消除爬升残余影响
-    float alt_err = target_pos_ned(2) - self_pos_(2);   // NED: Down 为正
+    // ---- 垂直速度分量 ----
+    // 略高于目标 (0.5m)，补偿前飞低头导致的相机下倾
+    float alt_offset = 0.25f;
+    float alt_err = (target_pos_ned(2) - alt_offset) - self_pos_(2);
     float vz = std::max(-3.0f, std::min(3.0f, alt_err * 2.0f));
 
     return {vx, vy, vz};
