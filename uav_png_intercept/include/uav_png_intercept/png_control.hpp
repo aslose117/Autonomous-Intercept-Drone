@@ -44,8 +44,8 @@ private:
     void set_offboard_mode();
     void publish_offboard_velocity_mode();
     void publish_offboard_position_mode();
-    void publish_velocity_setpoint(float vx, float vy, float vz);
-    void publish_position_setpoint(float x, float y, float z);
+    void publish_velocity_setpoint(float vx, float vy, float vz, float yaw);
+    void publish_position_setpoint(float x, float y, float z, float yaw);
     void publish_vehicle_command(uint16_t command, float p1 = 0.0f, float p2 = 0.0f);
 
     // -------- 发布者 --------
@@ -74,6 +74,7 @@ private:
     Eigen::Vector3f self_pos_{0.0f, 0.0f, 0.0f};
     Eigen::Vector3f self_vel_{0.0f, 0.0f, 0.0f};
     bool self_pos_ok_{false};
+    float local_z_{0.0f};             // 本地高度 (VehicleLocalPosition.z)
 
     // 目标位置（NED，转换到自身坐标系后）
     Eigen::Vector3f target_pos_{0.0f, 0.0f, 0.0f};
@@ -92,6 +93,7 @@ private:
     float d_v_angle_z_{0.0f};       // 期望速度方位角
     float last_v_angle_v_{0.0f};    // 上一帧速度仰角
     float last_v_angle_z_{0.0f};    // 上一帧速度方位角
+    float target_yaw_{0.0f};        // 目标方位角（用于机头指向目标）
 
     // -------- 导引参数 --------
     const float N_{4.0f};               // 导引比

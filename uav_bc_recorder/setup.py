@@ -15,7 +15,7 @@ setup(
     zip_safe=True,
     entry_points={
         "console_scripts": [
-            "recorder_node = uav_bc_recorder.recorder_node:main",
+            "uav_bc_recorder = uav_bc_recorder.recorder_node:main",
         ],
     },
 )

@@ -11,8 +11,7 @@
   <depend>sensor_msgs</depend>
   <depend>px4_msgs</depend>
   <depend>uav_common_msg</depend>
-  <depend>cv_bridge</depend>
-  <depend>python3-numpy</depend>
+    <depend>python3-numpy</depend>
   <depend>python3-opencv</depend>
 
   <export>

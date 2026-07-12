@@ -8,7 +8,7 @@
 每集独立输出，训练预处理阶段再做特征构造和动作编码。
 
 用法:
-  ros2 run uav_bc_recorder recorder_node \
+  ros2 run uav_bc_recorder uav_bc_recorder \
       --ros-args -p out_dir:=data/bc_v2_gazebo -p mode:=circle -p max_duration:=120.0
 """
 import csv
@@ -21,7 +21,6 @@ import time
 import cv2
 import numpy as np
 import rclpy
-from cv_bridge import CvBridge
 from px4_msgs.msg import (SensorGps, TrajectorySetpoint, VehicleLocalPosition,
                            VehicleOdometry)
 from rclpy.node import Node
@@ -42,9 +41,24 @@ def gps_to_ned(lat, lon, alt, origin_lat, origin_lon, origin_alt):
     return dn, de, dd
 
 
-# ---------------------------------------------------------------------------
+# ======================================================================
+#  ROS2 Image → numpy (不依赖 cv_bridge，避免 numpy 版本冲突)
+# ======================================================================
+_ENCODING_TO_CHANNELS = {
+    "bgr8": 3, "rgb8": 3, "bgra8": 4, "rgba8": 4,
+    "mono8": 1, "8uc1": 1, "8uc3": 3, "8uc4": 4,
+}
+
+
+def imgmsg_to_numpy(msg: Image) -> np.ndarray:
+    """将 sensor_msgs/Image 解码为 numpy 数组 (H, W, C)"""
+    c = _ENCODING_TO_CHANNELS.get(msg.encoding, 3)
+    return np.frombuffer(msg.data, dtype=np.uint8).reshape(msg.height, msg.width, c)
+
+
+# ======================================================================
 #  Node
-# ---------------------------------------------------------------------------
+# ======================================================================
 class BCRecorder(Node):
     def __init__(self):
         super().__init__("uav_bc_recorder")
@@ -54,9 +68,9 @@ class BCRecorder(Node):
         self.declare_parameter("mode", "circle")
         self.declare_parameter("max_duration", 120.0)
 
-        self._out_dir = self.get_parameter("out_dir").as_string()
-        self._mode = self.get_parameter("mode").as_string()
-        self._max_duration = self.get_parameter("max_duration").as_double()
+        self._out_dir = self.get_parameter("out_dir").value
+        self._mode = self.get_parameter("mode").value
+        self._max_duration = self.get_parameter("max_duration").value
 
         # ---- QoS (BEST_EFFORT, 与 PX4 一致) ----
         qos = QoSProfile(
@@ -117,29 +131,25 @@ class BCRecorder(Node):
             self._tgt_gps_cb, qos)
 
         # ---- 状态机 ----
-        # IDLE      → 等待 episode 开始
-        # RECORDING → 正在录制
         self._state = "IDLE"
         self._episode = 0
         self._frame_idx = 0
         self._ep_start_time = 0.0
         self._lost_count = 0
-        self._max_lost = 90  # 连续丢失 90 帧认为 episode 失败
+        self._max_lost = 90
 
         # ---- 写入器 (延迟初始化) ----
         self._video_writer = None
         self._csv_file = None
         self._csv_writer = None
-        self._bridge = CvBridge()
 
         # ---- 汇总 CSV ----
         self._summary_path = os.path.join(self._out_dir, "summary.csv")
-        self._summary_header_written = False
 
         os.makedirs(self._out_dir, exist_ok=True)
 
         self.get_logger().info(
-            f"BC Recorder 已启动 | out={self._out_dir} mode={self._mode} "
+            f"uav_bc_recorder 已启动 | out={self._out_dir} mode={self._mode} "
             f"max_duration={self._max_duration}s"
         )
         self.get_logger().info(
@@ -152,11 +162,9 @@ class BCRecorder(Node):
 
     def _image_cb(self, msg: Image):
         try:
-            self._image = self._bridge.imgmsg_to_cv2(msg, "bgr8")
+            self._image = imgmsg_to_numpy(msg)
         except Exception:
             return
-
-        # 有图像时尝试录制一帧
         self._maybe_record()
 
     def _detect_cb(self, msg: RectMsg):
@@ -167,7 +175,6 @@ class BCRecorder(Node):
 
     def _odom_cb(self, msg: VehicleOdometry):
         q = msg.q
-        # quaternion → Euler (ZYX)
         self._roll = math.atan2(
             2 * (q[0] * q[1] + q[2] * q[3]),
             1 - 2 * (q[1] * q[1] + q[2] * q[2]))
@@ -211,7 +218,6 @@ class BCRecorder(Node):
     # ==================================================================
 
     def _cmd_is_active(self) -> bool:
-        """判断 PNG 是否在发送非零速度指令 (INTERCEPT/COAST)"""
         for v in (self._cmd_vx, self._cmd_vy, self._cmd_vz):
             if math.isnan(v) or abs(v) < 1e-6:
                 return False
@@ -222,7 +228,6 @@ class BCRecorder(Node):
             return
 
         if self._state == "IDLE":
-            # 检测 episode 开始: 有 bbox 且 PNG 正在发速度指令
             if self._det is not None and self._cmd_is_active():
                 self._start_episode()
                 self._write_frame()
@@ -272,7 +277,6 @@ class BCRecorder(Node):
 
         self._video_writer.write(self._image)
 
-        # 距离
         if self._self_gps_ok and self._tgt_gps_ok:
             dist = math.sqrt(
                 (self._self_n - self._tgt_n) ** 2
@@ -310,7 +314,6 @@ class BCRecorder(Node):
 
         self._frame_idx += 1
 
-        # 跟踪丢失计数
         if self._det is None:
             self._lost_count += 1
         else:
@@ -319,7 +322,6 @@ class BCRecorder(Node):
     def _check_episode_end(self):
         elapsed = time.time() - self._ep_start_time
 
-        # 命中判定
         if self._self_gps_ok and self._tgt_gps_ok:
             dist = math.sqrt(
                 (self._self_n - self._tgt_n) ** 2
@@ -329,12 +331,10 @@ class BCRecorder(Node):
                 self._end_episode("hit")
                 return
 
-        # 长时间丢失
         if self._lost_count >= self._max_lost:
             self._end_episode("lost")
             return
 
-        # 超时
         if elapsed > self._max_duration:
             self._end_episode("timeout")
             return
@@ -375,9 +375,6 @@ class BCRecorder(Node):
                         round(duration, 1)])
 
     # ==================================================================
-    #  析构
-    # ==================================================================
-
     def destroy_node(self):
         if self._video_writer:
             self._video_writer.release()
@@ -387,13 +384,10 @@ class BCRecorder(Node):
 
 
 # ======================================================================
-#  main
-# ======================================================================
 def main():
     rclpy.init()
     node = BCRecorder()
 
-    # 优雅退出
     def _sigint(signum, frame):
         node.get_logger().info("收到 SIGINT，正在关闭...")
         node.destroy_node()

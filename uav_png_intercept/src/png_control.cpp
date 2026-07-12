@@ -76,6 +76,7 @@ PngInterceptor::PngInterceptor() : Node("png_interceptor")
         "/px4_1/fmu/out/vehicle_local_position", qos,
         [this](const VehicleLocalPosition::SharedPtr msg) {
             self_vel_ = {msg->vx, msg->vy, msg->vz};
+            local_z_ = msg->z;
         });
 
     // ---------- 订阅：目标速度（px4_2 VehicleLocalPosition）----------
@@ -134,6 +135,7 @@ Eigen::Vector3f PngInterceptor::compute_png_velocity(
     float rxy = sqrtf(R(0)*R(0) + R(1)*R(1));
     float LOS_angle_v = atan2f(R(2), rxy);          // 仰角（NED Down 为正）
     float LOS_angle_z = atan2f(R(0), R(1));          // 方位角（NED：北=0，顺时针）
+    target_yaw_ = atan2f(R(1), R(0));               // PX4 yaw = atan2(East, North)
 
     // ---- 首次进入：用 LOS 方向初始化，不使用当前飞行速度 ----
     // （避免 TAKEOFF 残余爬升速度污染初始 PNG 状态）
@@ -214,7 +216,7 @@ void PngInterceptor::control_loop()
     case InterceptState::INTERCEPT: handle_intercept(); break;
     case InterceptState::DONE:
         publish_offboard_velocity_mode();
-        publish_velocity_setpoint(0.0f, 0.0f, 0.0f);
+        publish_velocity_setpoint(0.0f, 0.0f, 0.0f, std::nanf(""));
         RCLCPP_INFO_ONCE(get_logger(), "★★★ 拦截完成，悬停中 ★★★");
         break;
     }
@@ -233,7 +235,7 @@ void PngInterceptor::handle_init()
 {
     // 始终发送 Offboard 心跳（PX4 要求进入 Offboard 前数据流必须存在）
     publish_offboard_position_mode();
-    publish_position_setpoint(0.0f, 0.0f, takeoff_alt_);
+    publish_position_setpoint(0.0f, 0.0f, takeoff_alt_, std::nanf(""));
 
     // 从第 1 帧起就持续发 arm + SET_MODE（与 uav_ibvs_control 一致）
     set_offboard_mode();
@@ -273,15 +275,22 @@ void PngInterceptor::handle_takeoff()
     set_offboard_mode();
     arm();
     publish_offboard_position_mode();
-    publish_position_setpoint(0.0f, 0.0f, takeoff_alt_);
+
+    // 机头指向目标（与 INTERCEPT 阶段一致）
+    float yaw = std::nanf("");
+    if (target_pos_ok_ && self_pos_ok_) {
+        Eigen::Vector3f R = target_pos_ - self_pos_;
+        yaw = atan2f(R(1), R(0));  // yaw = atan2(East, North)
+    }
+    publish_position_setpoint(0.0f, 0.0f, takeoff_alt_, yaw);
 
     RCLCPP_INFO_THROTTLE(get_logger(), *get_clock(), 1000,
         "[TAKEOFF] 当前高度 z=%.2f m (目标 %.2f m, 差 %.2f m)",
-        self_pos_(2), takeoff_alt_, std::fabs(self_pos_(2) - takeoff_alt_));
+        local_z_, takeoff_alt_, std::fabs(local_z_ - takeoff_alt_));
 
     // 高度到位（误差 < 0.5m）且目标数据就绪
     if (self_pos_ok_ &&
-        std::fabs(self_pos_(2) - takeoff_alt_) < 0.5f &&
+        std::fabs(local_z_ - takeoff_alt_) < 0.5f &&
         target_pos_ok_)
     {
         state_ = InterceptState::INTERCEPT;
@@ -299,7 +308,7 @@ void PngInterceptor::handle_intercept()
 
     if (!target_pos_ok_ || !self_pos_ok_) {
         publish_offboard_velocity_mode();
-        publish_velocity_setpoint(0.0f, 0.0f, 0.0f);
+        publish_velocity_setpoint(0.0f, 0.0f, 0.0f, std::nanf(""));
         RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 1000,
             "[INTERCEPT] 等待位置数据... self=%s target=%s",
             self_pos_ok_ ? "OK" : "NO",
@@ -327,7 +336,7 @@ void PngInterceptor::handle_intercept()
 
     Eigen::Vector3f v_cmd = compute_png_velocity(target_pos_);
     publish_offboard_velocity_mode();
-    publish_velocity_setpoint(v_cmd(0), v_cmd(1), v_cmd(2));
+    publish_velocity_setpoint(v_cmd(0), v_cmd(1), v_cmd(2), target_yaw_);
 }
 
 // ============================================================
@@ -361,22 +370,22 @@ void PngInterceptor::publish_offboard_velocity_mode()
     offboard_pub_->publish(msg);
 }
 
-void PngInterceptor::publish_position_setpoint(float x, float y, float z)
+void PngInterceptor::publish_position_setpoint(float x, float y, float z, float yaw)
 {
     TrajectorySetpoint msg{};
     msg.position  = {x, y, z};
-    msg.yaw       = 0.0f;
+    msg.yaw       = yaw;
     msg.timestamp = get_clock()->now().nanoseconds() / 1000;
     traj_pub_->publish(msg);
 }
 
-void PngInterceptor::publish_velocity_setpoint(float vx, float vy, float vz)
+void PngInterceptor::publish_velocity_setpoint(float vx, float vy, float vz, float yaw)
 {
     TrajectorySetpoint msg{};
     msg.position  = {std::nanf(""), std::nanf(""), std::nanf("")};
     msg.velocity  = {vx, vy, vz};
-    msg.yaw       = std::nanf("");
-    msg.yawspeed  = 0.0f;
+    msg.yaw       = yaw;              // 机头指向目标
+    msg.yawspeed  = std::nanf("");
     msg.timestamp = get_clock()->now().nanoseconds() / 1000;
     traj_pub_->publish(msg);
 }
